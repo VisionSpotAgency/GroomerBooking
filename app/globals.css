@@ -1319,3 +1319,117 @@ button:disabled {
   color: rgba(32, 29, 25, 0.42);
   font-weight: 900;
 }
+
+/* v4: continuous day planner layout */
+.day-planner {
+  min-width: 920px;
+  display: grid;
+  border: 1px solid var(--line);
+  border-radius: 24px;
+  overflow: hidden;
+  background: rgba(255, 255, 255, 0.5);
+}
+
+.day-planner-head {
+  min-height: 84px;
+  border-right: 1px solid var(--line);
+  border-bottom: 1px solid var(--line);
+  background: rgba(247, 241, 232, 0.92);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 14px;
+  font-weight: 900;
+}
+
+.day-planner-head.time-head {
+  font-size: 16px;
+}
+
+.day-time-rail,
+.day-employee-column {
+  position: relative;
+  height: 980px;
+  border-right: 1px solid var(--line);
+  background: rgba(255, 255, 255, 0.45);
+}
+
+.day-time-rail {
+  background: rgba(247, 241, 232, 0.72);
+}
+
+.day-time-label {
+  position: absolute;
+  left: 0;
+  right: 0;
+  transform: translateY(-50%);
+  min-height: 28px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--muted);
+  font-weight: 900;
+  border-top: 1px solid var(--line);
+  background: rgba(247, 241, 232, 0.46);
+}
+
+.day-hour-line {
+  position: absolute;
+  left: 0;
+  right: 0;
+  border-top: 1px dashed rgba(126, 116, 101, 0.22);
+  pointer-events: none;
+}
+
+.day-free-slot {
+  position: absolute;
+  left: 18px;
+  z-index: 1;
+  transform: translateY(-50%);
+  border: 1px dashed rgba(116, 107, 95, 0.4);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.72);
+  color: var(--muted);
+  padding: 8px 15px;
+  font-size: 12px;
+  font-weight: 900;
+  box-shadow: 0 8px 20px rgba(28, 22, 15, 0.04);
+}
+
+.day-free-slot:hover,
+.day-free-slot.drop-hover {
+  border-color: var(--gold);
+  color: var(--ink);
+  background: rgba(201, 154, 74, 0.14);
+}
+
+.day-appointment-position {
+  position: absolute;
+  left: 16px;
+  right: 16px;
+  z-index: 3;
+}
+
+.day-appointment-position .appointment-card {
+  height: 100%;
+  min-height: 58px;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+}
+
+.appointment-card .employee-line {
+  margin-top: 4px;
+  font-weight: 800;
+}
+
+@media (max-width: 760px) {
+  .day-planner {
+    min-width: 760px;
+  }
+
+  .day-time-rail,
+  .day-employee-column {
+    height: 820px;
+  }
+}

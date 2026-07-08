@@ -32,6 +32,7 @@ import {
   formatDate,
   formatPrice,
   hasEmployeeConflict,
+  minutesFromTime,
   isEmployeeAvailable,
   rangesOverlap,
   useGroomerStore
@@ -286,6 +287,19 @@ function CalendarBoard({
   const [calendarMessage, setCalendarMessage] = useState("");
   const visibleDates = view === "week" ? weekDates(selectedDate) : [selectedDate];
   const currentMonth = dateObj(selectedDate).getMonth();
+  const dayStartMin = 9 * 60;
+  const dayEndMin = 18 * 60;
+  const dayRangeMin = dayEndMin - dayStartMin;
+  const dayHourLabels = Array.from({ length: 10 }, (_, index) => `${String(9 + index).padStart(2, "0")}:00`);
+
+  function dayPosition(time: string, durationMin = 0): React.CSSProperties {
+    const top = ((minutesFromTime(time) - dayStartMin) / dayRangeMin) * 100;
+    const height = durationMin ? Math.max(6, (durationMin / dayRangeMin) * 100) : 0;
+    return durationMin
+      ? { top: `${Math.max(0, top)}%`, height: `max(58px, calc(${height}% - 8px))` }
+      : { top: `${Math.max(0, top)}%` };
+  }
+
 
   function getAppointments(date: string, time?: string, employeeId?: string) {
     return appointments.filter((item) => {
@@ -394,56 +408,71 @@ function CalendarBoard({
 
       {view === "day" ? (
         <div className="calendar-wrap">
-          <div className="day-calendar-grid" style={{ gridTemplateColumns: `74px repeat(${Math.max(1, employees.length)}, minmax(190px, 1fr))` }}>
-            <div className="calendar-cell header">Godz.</div>
+          <div className="day-planner" style={{ gridTemplateColumns: `90px repeat(${Math.max(1, employees.length)}, minmax(240px, 1fr))` }}>
+            <div className="day-planner-head time-head">Godz.</div>
             {employees.map((employee) => (
-              <div className="calendar-cell header employee-header" key={employee.id}>
+              <div className="day-planner-head employee-header" key={employee.id}>
                 <img className="avatar" src={employee.avatar} alt={employee.name} />
                 <div>{employee.name}<div className="muted small">{employee.role}</div></div>
               </div>
             ))}
-            {demoTimes.map((time) => (
-              <React.Fragment key={time}>
-                <div className="calendar-cell time">{time}</div>
-                {employees.map((employee) => {
-                  const id = `${selectedDate}-${time}-${employee.id}`;
-                  const inSlot = getAppointments(selectedDate, time, employee.id);
-                  const blockedByOverlap = !inSlot.length && hasEmployeeConflict(appointments, employee.id, selectedDate, time, 1);
-                  return (
-                    <button
-                      key={id}
-                      className={`calendar-cell slot-button ${hoverSlot === id ? "drop-hover" : ""} ${blockedByOverlap ? "busy-slot" : ""}`}
-                      onClick={() => {
-                        if (blockedByOverlap) {
-                          setCalendarMessage("Ten fragment dnia jest zajęty przez dłuższą wizytę pracownika.");
-                          return;
-                        }
-                        openAppointment({ date: selectedDate, time, employeeId: employee.id });
-                      }}
-                      onDragOver={(event) => {
-                        event.preventDefault();
-                        setHoverSlot(id);
-                      }}
-                      onDragLeave={() => setHoverSlot(null)}
-                      onDrop={(event) => handleDrop(event, selectedDate, time, employee.id)}
-                      title={blockedByOverlap ? "Zajęte przez inną wizytę" : "Kliknij, aby dodać wizytę w tym slocie"}
+            <div className="day-time-rail">
+              {dayHourLabels.map((time) => (
+                <div className="day-time-label" key={time} style={dayPosition(time)}>
+                  {time}
+                </div>
+              ))}
+            </div>
+            {employees.map((employee) => {
+              const employeeAppointments = appointments
+                .filter((item) => item.status !== "anulowana" && item.date === selectedDate && item.employeeId === employee.id)
+                .sort((a, b) => minutesFromTime(a.time) - minutesFromTime(b.time));
+
+              return (
+                <div
+                  className="day-employee-column"
+                  key={employee.id}
+                  onDragOver={(event) => event.preventDefault()}
+                >
+                  {dayHourLabels.map((time) => (
+                    <div className="day-hour-line" key={time} style={dayPosition(time)} />
+                  ))}
+
+                  {demoTimes.map((time) => {
+                    const id = `${selectedDate}-${time}-${employee.id}`;
+                    const isBusy = hasEmployeeConflict(appointments, employee.id, selectedDate, time, 1);
+                    if (isBusy) return null;
+                    return (
+                      <button
+                        key={id}
+                        className={`day-free-slot ${hoverSlot === id ? "drop-hover" : ""}`}
+                        style={dayPosition(time)}
+                        onClick={() => openAppointment({ date: selectedDate, time, employeeId: employee.id })}
+                        onDragOver={(event) => {
+                          event.preventDefault();
+                          setHoverSlot(id);
+                        }}
+                        onDragLeave={() => setHoverSlot(null)}
+                        onDrop={(event) => handleDrop(event, selectedDate, time, employee.id)}
+                        title="Kliknij, aby dodać wizytę w tym slocie"
+                      >
+                        + wolny termin
+                      </button>
+                    );
+                  })}
+
+                  {employeeAppointments.map((appointment) => (
+                    <div
+                      key={appointment.id}
+                      className="day-appointment-position"
+                      style={dayPosition(appointment.time, appointment.durationMin)}
                     >
-                      {inSlot.length ? (
-                        <div className="table-list">
-                          {inSlot.map((appointment) => (
-                            <CalendarAppointment key={appointment.id} store={store} appointment={appointment} openEdit={openEdit} />
-                          ))}
-                        </div>
-                      ) : blockedByOverlap ? (
-                        <span className="empty-slot blocked">zajęte</span>
-                      ) : (
-                        <span className="empty-slot">+ wolny termin</span>
-                      )}
-                    </button>
-                  );
-                })}
-              </React.Fragment>
-            ))}
+                      <CalendarAppointment store={store} appointment={appointment} openEdit={openEdit} />
+                    </div>
+                  ))}
+                </div>
+              );
+            })}
           </div>
         </div>
       ) : null}
@@ -482,7 +511,7 @@ function CalendarBoard({
                       {inSlot.length ? (
                         <div className="table-list">
                           {inSlot.map((appointment) => (
-                            <CalendarAppointment key={appointment.id} store={store} appointment={appointment} openEdit={openEdit} />
+                            <CalendarAppointment key={appointment.id} store={store} appointment={appointment} openEdit={openEdit} showEmployee />
                           ))}
                         </div>
                       ) : (
@@ -500,7 +529,7 @@ function CalendarBoard({
   );
 }
 
-function CalendarAppointment({ store, appointment, openEdit }: { store: ReturnType<typeof useGroomerStore>; appointment: Appointment; openEdit: (id: string) => void }) {
+function CalendarAppointment({ store, appointment, openEdit, showEmployee = false }: { store: ReturnType<typeof useGroomerStore>; appointment: Appointment; openEdit: (id: string) => void; showEmployee?: boolean }) {
   const service = store.data.services.find((item) => item.id === appointment.serviceId);
   const pet = store.data.pets.find((item) => item.id === appointment.petId);
   const client = store.data.clients.find((item) => item.id === appointment.clientId);
@@ -524,6 +553,7 @@ function CalendarAppointment({ store, appointment, openEdit }: { store: ReturnTy
       </strong>
       <div>{pet?.name} · {service?.name}</div>
       <div className="muted">{client?.name}</div>
+      {showEmployee ? <div className="muted employee-line">Pracownik: {employee?.name}</div> : null}
     </div>
   );
 }
