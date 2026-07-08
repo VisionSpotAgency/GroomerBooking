@@ -67,3 +67,13 @@ Nie wrzucaj na GitHub folderów:
 - Drag & drop w kalendarzu obsługuje sloty 09:15, 09:30, 09:45 itd.
 - W procesie rezerwacji klient widzi tylko dostępne godziny — zajęte terminy są ukryte.
 - System nadal blokuje nakładające się wizyty u tego samego pracownika i pilnuje godzin pracy salonu.
+
+
+## Zmiany w v6
+
+- Poprawiono drag & drop w widoku dziennym kalendarza.
+- Sloty `+ 09:15`, `+ 09:30` itd. są teraz pełnoszerokościowymi obszarami kliknięcia/dropu.
+- Wizyty można przeciągać co 15 minut również w widoku dziennym.
+- Podczas przeciągania pojawia się podgląd wizyty z aktualizowaną godziną docelową.
+- System dalej blokuje przeniesienie wizyty na zajęty czas pracownika albo poza godziny pracy.
+- W rezerwacji klienta zajęte godziny nie są pokazywane na liście dostępnych terminów.

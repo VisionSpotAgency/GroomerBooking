@@ -69,6 +69,8 @@ const tabs: { id: TabId; label: string; icon: React.ElementType }[] = [
 
 type CalendarView = "day" | "week" | "month";
 
+type DragPreview = { appointmentId: string; date: string; time: string; employeeId?: string; valid: boolean } | null;
+
 function dateObj(iso: string) {
   return new Date(`${iso}T00:00:00`);
 }
@@ -116,6 +118,12 @@ function dayLabel(iso: string) {
 
 function monthLabel(iso: string) {
   return new Intl.DateTimeFormat("pl-PL", { month: "long", year: "numeric" }).format(dateObj(iso));
+}
+
+function timeFromMinutesLocal(total: number) {
+  const hh = String(Math.floor(total / 60)).padStart(2, "0");
+  const mm = String(total % 60).padStart(2, "0");
+  return `${hh}:${mm}`;
 }
 
 
@@ -287,6 +295,7 @@ function CalendarBoard({
   const [view, setView] = useState<CalendarView>("week");
   const [selectedDate, setSelectedDate] = useState(demoDates[0]);
   const [hoverSlot, setHoverSlot] = useState<string | null>(null);
+  const [dragPreview, setDragPreview] = useState<DragPreview>(null);
   const [calendarMessage, setCalendarMessage] = useState("");
   const visibleDates = view === "week" ? weekDates(selectedDate) : [selectedDate];
   const currentMonth = dateObj(selectedDate).getMonth();
@@ -301,6 +310,35 @@ function CalendarBoard({
     return durationMin
       ? { top: `${Math.max(0, top)}%`, height: `max(58px, calc(${height}% - 8px))` }
       : { top: `${Math.max(0, top)}%` };
+  }
+
+  function slotPosition(time: string): React.CSSProperties {
+    const top = ((minutesFromTime(time) - dayStartMin) / dayRangeMin) * 100;
+    const height = (15 / dayRangeMin) * 100;
+    return { top: `${Math.max(0, top)}%`, height: `calc(${height}% + 1px)` };
+  }
+
+  function timeFromPointer(event: React.DragEvent<HTMLElement>) {
+    const rect = event.currentTarget.getBoundingClientRect();
+    const y = Math.min(Math.max(event.clientY - rect.top, 0), rect.height);
+    const rawMinutes = dayStartMin + (y / rect.height) * dayRangeMin;
+    const rounded = Math.round(rawMinutes / 15) * 15;
+    const clamped = Math.min(Math.max(rounded, dayStartMin), dayEndMin - 15);
+    return timeFromMinutesLocal(clamped);
+  }
+
+  function updateDragPreview(event: React.DragEvent<HTMLElement>, date: string, employeeId?: string, fixedTime?: string) {
+    const appointmentId = event.dataTransfer.getData("appointmentId");
+    if (!appointmentId) return;
+    const appointment = appointments.find((item) => item.id === appointmentId);
+    if (!appointment) return;
+    const time = fixedTime || timeFromPointer(event);
+    const targetEmployeeId = employeeId || appointment.employeeId;
+    const valid =
+      isWithinWorkingDay(time, appointment.durationMin) &&
+      !hasEmployeeConflict(appointments, targetEmployeeId, date, time, appointment.durationMin, appointment.id);
+    setDragPreview({ appointmentId, date, time, employeeId: targetEmployeeId, valid });
+    setHoverSlot(`${date}-${time}-${targetEmployeeId}`);
   }
 
 
@@ -323,16 +361,19 @@ function CalendarBoard({
     if (!isWithinWorkingDay(time, appointment.durationMin)) {
       setCalendarMessage("Nie można przenieść wizyty — wybrana usługa nie mieści się w godzinach pracy salonu.");
       setHoverSlot(null);
+      setDragPreview(null);
       return;
     }
     if (hasEmployeeConflict(appointments, targetEmployeeId, date, time, appointment.durationMin, appointment.id)) {
       setCalendarMessage("Nie można przenieść wizyty — ten pracownik ma już wizytę w tym czasie.");
       setHoverSlot(null);
+      setDragPreview(null);
       return;
     }
-    store.moveAppointment(appointmentId, date, time, employeeId);
+    store.moveAppointment(appointmentId, date, time, targetEmployeeId);
     setCalendarMessage("");
     setHoverSlot(null);
+    setDragPreview(null);
   }
 
   function goPrevious() {
@@ -440,7 +481,19 @@ function CalendarBoard({
                 <div
                   className="day-employee-column"
                   key={employee.id}
-                  onDragOver={(event) => event.preventDefault()}
+                  onDragOver={(event) => {
+                    event.preventDefault();
+                    updateDragPreview(event, selectedDate, employee.id);
+                  }}
+                  onDragLeave={(event) => {
+                    if (!event.currentTarget.contains(event.relatedTarget as Node | null)) {
+                      setHoverSlot(null);
+                    }
+                  }}
+                  onDrop={(event) => {
+                    const time = timeFromPointer(event);
+                    handleDrop(event, selectedDate, time, employee.id);
+                  }}
                 >
                   {dayHourLabels.map((time) => (
                     <div className="day-hour-line" key={time} style={dayPosition(time)} />
@@ -454,14 +507,18 @@ function CalendarBoard({
                       <button
                         key={id}
                         className={`day-free-slot ${hoverSlot === id ? "drop-hover" : ""}`}
-                        style={dayPosition(time)}
+                        style={slotPosition(time)}
                         onClick={() => openAppointment({ date: selectedDate, time, employeeId: employee.id })}
                         onDragOver={(event) => {
                           event.preventDefault();
-                          setHoverSlot(id);
+                          event.stopPropagation();
+                          updateDragPreview(event, selectedDate, employee.id, time);
                         }}
                         onDragLeave={() => setHoverSlot(null)}
-                        onDrop={(event) => handleDrop(event, selectedDate, time, employee.id)}
+                        onDrop={(event) => {
+                          event.stopPropagation();
+                          handleDrop(event, selectedDate, time, employee.id);
+                        }}
                         title="Kliknij, aby dodać wizytę w tym slocie"
                       >
                         + {time}
@@ -469,13 +526,41 @@ function CalendarBoard({
                     );
                   })}
 
+
+                  {dragPreview?.date === selectedDate && dragPreview.employeeId === employee.id ? (() => {
+                    const moving = appointments.find((item) => item.id === dragPreview.appointmentId);
+                    return moving ? (
+                      <div
+                        className={`day-appointment-position drag-live-preview ${dragPreview.valid ? "" : "invalid"}`}
+                        style={dayPosition(dragPreview.time, moving.durationMin)}
+                      >
+                        <CalendarAppointment
+                          store={store}
+                          appointment={{ ...moving, date: dragPreview.date, time: dragPreview.time, employeeId: employee.id }}
+                          openEdit={openEdit}
+                          showEmployee
+                          preview
+                        />
+                      </div>
+                    ) : null;
+                  })() : null}
+
                   {employeeAppointments.map((appointment) => (
                     <div
                       key={appointment.id}
                       className="day-appointment-position"
                       style={dayPosition(appointment.time, appointment.durationMin)}
                     >
-                      <CalendarAppointment store={store} appointment={appointment} openEdit={openEdit} />
+                      <CalendarAppointment
+                        store={store}
+                        appointment={appointment}
+                        openEdit={openEdit}
+                        isDragging={dragPreview?.appointmentId === appointment.id}
+                        onDragEnd={() => {
+                          setHoverSlot(null);
+                          setDragPreview(null);
+                        }}
+                      />
                     </div>
                   ))}
                 </div>
@@ -510,6 +595,7 @@ function CalendarBoard({
                       onClick={() => openAppointment({ date, time })}
                       onDragOver={(event) => {
                         event.preventDefault();
+                        updateDragPreview(event, date, undefined, time);
                         setHoverSlot(id);
                       }}
                       onDragLeave={() => setHoverSlot(null)}
@@ -519,7 +605,18 @@ function CalendarBoard({
                       {inSlot.length ? (
                         <div className="table-list">
                           {inSlot.map((appointment) => (
-                            <CalendarAppointment key={appointment.id} store={store} appointment={appointment} openEdit={openEdit} showEmployee />
+                            <CalendarAppointment
+                              key={appointment.id}
+                              store={store}
+                              appointment={dragPreview?.appointmentId === appointment.id ? { ...appointment, date: dragPreview.date, time: dragPreview.time, employeeId: dragPreview.employeeId || appointment.employeeId } : appointment}
+                              openEdit={openEdit}
+                              showEmployee
+                              isDragging={dragPreview?.appointmentId === appointment.id}
+                              onDragEnd={() => {
+                                setHoverSlot(null);
+                                setDragPreview(null);
+                              }}
+                            />
                           ))}
                         </div>
                       ) : (
@@ -537,22 +634,40 @@ function CalendarBoard({
   );
 }
 
-function CalendarAppointment({ store, appointment, openEdit, showEmployee = false }: { store: ReturnType<typeof useGroomerStore>; appointment: Appointment; openEdit: (id: string) => void; showEmployee?: boolean }) {
+function CalendarAppointment({
+  store,
+  appointment,
+  openEdit,
+  showEmployee = false,
+  isDragging = false,
+  preview = false,
+  onDragEnd
+}: {
+  store: ReturnType<typeof useGroomerStore>;
+  appointment: Appointment;
+  openEdit: (id: string) => void;
+  showEmployee?: boolean;
+  isDragging?: boolean;
+  preview?: boolean;
+  onDragEnd?: () => void;
+}) {
   const service = store.data.services.find((item) => item.id === appointment.serviceId);
   const pet = store.data.pets.find((item) => item.id === appointment.petId);
   const client = store.data.clients.find((item) => item.id === appointment.clientId);
   const employee = store.data.employees.find((item) => item.id === appointment.employeeId);
   return (
     <div
-      className={`appointment-card ${employee?.color || ""}`}
-      draggable
+      className={`appointment-card ${employee?.color || ""} ${isDragging ? "is-dragging" : ""} ${preview ? "is-preview" : ""}`}
+      draggable={!preview}
       onDragStart={(event) => {
         event.stopPropagation();
         event.dataTransfer.setData("appointmentId", appointment.id);
+        event.dataTransfer.effectAllowed = "move";
       }}
+      onDragEnd={onDragEnd}
       onClick={(event) => {
         event.stopPropagation();
-        openEdit(appointment.id);
+        if (!preview) openEdit(appointment.id);
       }}
       title="Kliknij, żeby edytować. Przeciągnij, żeby zmienić termin."
     >
