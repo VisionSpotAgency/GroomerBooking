@@ -1611,3 +1611,66 @@ button:disabled {
   background: rgba(254, 226, 226, 0.88);
   outline-color: rgba(185, 28, 28, 0.55);
 }
+
+/* v7: reliable drag preview for Safari/Desktop and mobile calendar polish */
+.floating-drag-preview {
+  position: fixed;
+  z-index: 250;
+  width: min(260px, calc(100vw - 36px));
+  pointer-events: none;
+  transform: translate3d(0, 0, 0);
+  filter: drop-shadow(0 22px 34px rgba(28, 22, 15, 0.28));
+}
+
+.floating-drag-preview .appointment-card {
+  opacity: 1;
+  cursor: grabbing;
+  border-width: 2px;
+  outline: 2px dashed rgba(201, 154, 74, 0.72);
+  outline-offset: -7px;
+}
+
+.floating-drag-preview.invalid .appointment-card {
+  background: rgba(254, 226, 226, 0.96);
+  border-color: rgba(185, 28, 28, 0.7);
+  outline-color: rgba(185, 28, 28, 0.58);
+}
+
+.floating-drag-caption {
+  display: inline-flex;
+  margin-top: 8px;
+  padding: 6px 10px;
+  border-radius: 999px;
+  background: #1b1712;
+  color: #fff;
+  font-size: 11px;
+  font-weight: 900;
+  box-shadow: 0 10px 20px rgba(28, 22, 15, 0.2);
+}
+
+.floating-drag-preview.invalid .floating-drag-caption {
+  background: #991b1b;
+}
+
+.calendar-cell.slot-button {
+  position: relative;
+  min-height: 72px;
+}
+
+.calendar-cell.slot-button .table-list {
+  min-height: 36px;
+}
+
+.day-free-slot.drop-hover {
+  box-shadow: inset 0 0 0 2px rgba(201, 154, 74, 0.4);
+}
+
+@media (max-width: 760px) {
+  .floating-drag-preview {
+    width: 220px;
+  }
+
+  .floating-drag-preview .appointment-card {
+    font-size: 11px;
+  }
+}
