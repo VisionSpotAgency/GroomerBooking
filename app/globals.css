@@ -1276,3 +1276,46 @@ button:disabled {
     grid-template-columns: repeat(4, 1fr);
   }
 }
+
+.inline-alert {
+  border: 1px solid rgba(161, 98, 7, 0.24);
+  background: rgba(255, 247, 237, 0.78);
+  color: #7c4a03;
+  border-radius: 16px;
+  padding: 12px 14px;
+  font-weight: 800;
+}
+
+.inline-alert.danger {
+  border-color: rgba(185, 28, 28, 0.22);
+  background: rgba(254, 242, 242, 0.9);
+  color: #991b1b;
+}
+
+.blocked-label {
+  display: block;
+  margin-top: 2px;
+  font-size: 10px;
+  line-height: 1;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  opacity: 0.75;
+}
+
+.pill-time:disabled,
+.pill-date:disabled {
+  background: rgba(226, 219, 208, 0.45);
+  color: rgba(32, 29, 25, 0.54);
+  border-color: rgba(126, 116, 101, 0.2);
+  box-shadow: none;
+}
+
+.busy-slot {
+  background: rgba(226, 219, 208, 0.34) !important;
+  cursor: not-allowed;
+}
+
+.empty-slot.blocked {
+  color: rgba(32, 29, 25, 0.42);
+  font-weight: 900;
+}

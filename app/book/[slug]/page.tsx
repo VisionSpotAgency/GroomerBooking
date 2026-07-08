@@ -4,8 +4,17 @@ import Link from "next/link";
 import { useParams, useSearchParams } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
 import { ArrowLeft, CheckCircle2, Clock, CreditCard, PawPrint, Plus, Scissors, User } from "lucide-react";
-import { calculateDeposit, demoDates, demoTimes, formatDate, formatPrice, useGroomerStore } from "@/lib/store";
-import { Service } from "@/lib/types";
+import {
+  calculateDeposit,
+  demoDates,
+  demoTimes,
+  findAvailableEmployee,
+  formatDate,
+  formatPrice,
+  isEmployeeAvailable,
+  useGroomerStore
+} from "@/lib/store";
+import { Appointment, Service } from "@/lib/types";
 
 export default function BookingPage() {
   const store = useGroomerStore();
@@ -27,35 +36,57 @@ export default function BookingPage() {
   const [newPet, setNewPet] = useState({ name: "", breed: "", weightKg: "", photo: "" });
   const [clientData, setClientData] = useState({ name: currentClient.name, phone: currentClient.phone, email: currentClient.email });
   const [finishedId, setFinishedId] = useState<string | null>(null);
+  const [queryApplied, setQueryApplied] = useState(false);
+  const [bookingError, setBookingError] = useState("");
 
   useEffect(() => {
+    if (queryApplied) return;
     const queryService = searchParams.get("service");
     if (queryService && services.some((service) => service.id === queryService)) {
       setSelectedServiceId(queryService);
-    } else if (!selectedServiceId && services[0]) {
+      setQueryApplied(true);
+      return;
+    }
+    if (!selectedServiceId && services[0]) {
       setSelectedServiceId(services[0].id);
     }
-  }, [searchParams, selectedServiceId, services]);
+    setQueryApplied(true);
+  }, [queryApplied, searchParams, selectedServiceId, services]);
 
   const service = services.find((item) => item.id === selectedServiceId) || services[0];
   const selectedClient = currentClient;
   const deposit = service ? calculateDeposit(salon, service, selectedClient) : 0;
-  const employee = selectedEmployeeId === "any" ? employees[0] : employees.find((item) => item.id === selectedEmployeeId) || employees[0];
   const total = service?.price || 0;
+  const activeAppointments = store.data.appointments.filter((item) => item.salonId === salon.id);
+  const availableEmployeeForSelection = service
+    ? selectedEmployeeId === "any"
+      ? findAvailableEmployee(employees, activeAppointments, selectedDate, selectedTime, service.durationMin)
+      : employees.find((item) => item.id === selectedEmployeeId && isEmployeeAvailable(activeAppointments, item.id, selectedDate, selectedTime, service.durationMin))
+    : undefined;
 
   const canContinue = useMemo(() => {
     if (step === 1) return Boolean(service);
-    if (step === 2) return Boolean(selectedDate && selectedTime);
+    if (step === 2) return Boolean(selectedDate && selectedTime && availableEmployeeForSelection);
     if (step === 3) {
       if (!clientData.name || !clientData.phone) return false;
       if (mode === "existing") return Boolean(selectedPetId);
       return Boolean(newPet.name);
     }
     return true;
-  }, [step, service, selectedDate, selectedTime, clientData, mode, selectedPetId, newPet.name]);
+  }, [step, service, selectedDate, selectedTime, availableEmployeeForSelection, clientData, mode, selectedPetId, newPet.name]);
 
   function finishBooking() {
-    if (!service || !employee) return;
+    if (!service) return;
+    const finalEmployee = selectedEmployeeId === "any"
+      ? findAvailableEmployee(employees, activeAppointments, selectedDate, selectedTime, service.durationMin)
+      : employees.find((item) => item.id === selectedEmployeeId && isEmployeeAvailable(activeAppointments, item.id, selectedDate, selectedTime, service.durationMin));
+
+    if (!finalEmployee) {
+      setBookingError("Ten termin jest już zajęty u wybranego pracownika. Wybierz inną godzinę albo opcję „Dowolna osoba”.");
+      setStep(2);
+      return;
+    }
+
     let clientId = currentClient.id;
     let petId = selectedPetId;
 
@@ -77,7 +108,7 @@ export default function BookingPage() {
       clientId,
       petId,
       serviceId: service.id,
-      employeeId: employee.id,
+      employeeId: finalEmployee.id,
       date: selectedDate,
       time: selectedTime,
       durationMin: service.durationMin,
@@ -157,7 +188,12 @@ export default function BookingPage() {
               selectedDate={selectedDate}
               setSelectedDate={setSelectedDate}
               selectedTime={selectedTime}
-              setSelectedTime={setSelectedTime}
+              setSelectedTime={(time) => {
+                setSelectedTime(time);
+                setBookingError("");
+              }}
+              appointments={activeAppointments}
+              serviceDuration={service?.durationMin || 60}
             />
           ) : null}
           {step === 3 ? (
@@ -177,6 +213,7 @@ export default function BookingPage() {
             <PaymentStep service={service} salonName={salon.name} deposit={deposit} total={total} selectedDate={selectedDate} selectedTime={selectedTime} />
           ) : null}
         </div>
+        {bookingError ? <div className="inline-alert danger" style={{ marginTop: 16 }}>{bookingError}</div> : null}
 
         <div className="checkout-bar">
           <div>
@@ -228,7 +265,9 @@ function DateStep({
   selectedDate,
   setSelectedDate,
   selectedTime,
-  setSelectedTime
+  setSelectedTime,
+  appointments,
+  serviceDuration
 }: {
   employees: { id: string; name: string; avatar: string; role: string }[];
   selectedEmployeeId: string;
@@ -237,11 +276,30 @@ function DateStep({
   setSelectedDate: (date: string) => void;
   selectedTime: string;
   setSelectedTime: (time: string) => void;
+  appointments: Appointment[];
+  serviceDuration: number;
 }) {
+  const timeOptions = demoTimes.map((time) => {
+    const availableEmployees = employees.filter((employee) =>
+      isEmployeeAvailable(appointments, employee.id, selectedDate, time, serviceDuration)
+    );
+    const available = selectedEmployeeId === "any"
+      ? availableEmployees.length > 0
+      : availableEmployees.some((employee) => employee.id === selectedEmployeeId);
+    return { time, available, availableEmployees };
+  });
+
+  useEffect(() => {
+    const current = timeOptions.find((item) => item.time === selectedTime);
+    if (current?.available) return;
+    const firstAvailable = timeOptions.find((item) => item.available);
+    if (firstAvailable) setSelectedTime(firstAvailable.time);
+  }, [selectedDate, selectedEmployeeId, serviceDuration]);
+
   return (
     <div>
       <h2>Wybierz pracownika i termin</h2>
-      <p className="muted">Możesz wybrać konkretną osobę albo zostawić dowolną dostępną osobę.</p>
+      <p className="muted">Zajęte godziny są blokowane według czasu trwania wybranej usługi, więc jeden pracownik nie dostanie dwóch wizyt w tym samym czasie.</p>
       <div className="date-row" style={{ margin: "18px 0" }}>
         <button className={`choice-card ${selectedEmployeeId === "any" ? "active" : ""}`} style={{ minWidth: 130 }} onClick={() => setSelectedEmployeeId("any")}>
           <User />
@@ -267,12 +325,24 @@ function DateStep({
       </div>
       <h3 style={{ marginTop: 18 }}>Godzina</h3>
       <div className="time-row">
-        {demoTimes.map((time) => (
-          <button className={`pill-time ${selectedTime === time ? "active" : ""}`} key={time} onClick={() => setSelectedTime(time)}>
+        {timeOptions.map(({ time, available, availableEmployees }) => (
+          <button
+            className={`pill-time ${selectedTime === time ? "active" : ""}`}
+            key={time}
+            onClick={() => available && setSelectedTime(time)}
+            disabled={!available}
+            title={available ? `Dostępne osoby: ${availableEmployees.map((employee) => employee.name).join(", ")}` : "Termin zajęty"}
+          >
             {time}
+            {!available ? <span className="blocked-label">zajęte</span> : null}
           </button>
         ))}
       </div>
+      {!timeOptions.some((item) => item.available) ? (
+        <div className="inline-alert danger" style={{ marginTop: 12 }}>
+          Brak wolnych terminów dla tej kombinacji usługi, daty i pracownika.
+        </div>
+      ) : null}
     </div>
   );
 }

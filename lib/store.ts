@@ -209,6 +209,65 @@ export function endTime(time: string, durationMin: number) {
   return `${hh}:${mm}`;
 }
 
+
+export function minutesFromTime(time: string) {
+  const [h, m] = time.split(":").map(Number);
+  return h * 60 + m;
+}
+
+export function rangesOverlap(startA: string, durationA: number, startB: string, durationB: number) {
+  const aStart = minutesFromTime(startA);
+  const aEnd = aStart + durationA;
+  const bStart = minutesFromTime(startB);
+  const bEnd = bStart + durationB;
+  return aStart < bEnd && bStart < aEnd;
+}
+
+export function isAppointmentBlocking(appointment: Appointment) {
+  return appointment.status !== "anulowana";
+}
+
+export function hasEmployeeConflict(
+  appointments: Appointment[],
+  employeeId: string,
+  date: string,
+  time: string,
+  durationMin: number,
+  ignoreAppointmentId?: string
+) {
+  return appointments.some((appointment) => {
+    if (appointment.id === ignoreAppointmentId) return false;
+    if (!isAppointmentBlocking(appointment)) return false;
+    if (appointment.employeeId !== employeeId) return false;
+    if (appointment.date !== date) return false;
+    return rangesOverlap(time, durationMin, appointment.time, appointment.durationMin);
+  });
+}
+
+export function isEmployeeAvailable(
+  appointments: Appointment[],
+  employeeId: string,
+  date: string,
+  time: string,
+  durationMin: number,
+  ignoreAppointmentId?: string
+) {
+  return !hasEmployeeConflict(appointments, employeeId, date, time, durationMin, ignoreAppointmentId);
+}
+
+export function findAvailableEmployee(
+  employees: Employee[],
+  appointments: Appointment[],
+  date: string,
+  time: string,
+  durationMin: number,
+  ignoreAppointmentId?: string
+) {
+  return employees.find((employee) =>
+    isEmployeeAvailable(appointments, employee.id, date, time, durationMin, ignoreAppointmentId)
+  );
+}
+
 export function calculateDeposit(salon: Salon, service: Service, client?: Client) {
   if (!service.depositRequired || client?.depositExempt) return 0;
   if (service.depositOverride) return service.depositOverride;

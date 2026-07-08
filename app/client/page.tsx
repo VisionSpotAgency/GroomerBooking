@@ -15,7 +15,16 @@ import {
   WalletCards
 } from "lucide-react";
 import { Logo, StatusBadge } from "@/components/Common";
-import { demoDates, demoTimes, endTime, formatDate, formatPrice, useGroomerStore } from "@/lib/store";
+import {
+  demoDates,
+  demoTimes,
+  endTime,
+  formatDate,
+  formatPrice,
+  hasEmployeeConflict,
+  isEmployeeAvailable,
+  useGroomerStore
+} from "@/lib/store";
 import { Appointment } from "@/lib/types";
 
 type ClientTab = "visits" | "pets" | "profile" | "reviews" | "favorites" | "payments";
@@ -185,40 +194,73 @@ function RescheduleModal({ store, appointmentId, onClose }: { store: ReturnType<
   const appointment = store.data.appointments.find((item) => item.id === appointmentId);
   const [date, setDate] = useState(appointment?.date || demoDates[0]);
   const [time, setTime] = useState(appointment?.time || demoTimes[0]);
+  const [error, setError] = useState("");
   if (!appointment) return null;
+  const currentAppointment = appointment;
+
+  const employee = store.data.employees.find((item) => item.id === currentAppointment.employeeId);
+  const service = store.data.services.find((item) => item.id === currentAppointment.serviceId);
+  const duration = service?.durationMin || currentAppointment.durationMin;
+  const timeOptions = demoTimes.map((item) => ({
+    time: item,
+    available: isEmployeeAvailable(store.data.appointments, currentAppointment.employeeId, date, item, duration, currentAppointment.id)
+  }));
+
+  function save() {
+    if (hasEmployeeConflict(store.data.appointments, currentAppointment.employeeId, date, time, duration, currentAppointment.id)) {
+      setError("Ten termin jest już zajęty u wybranego pracownika. Wybierz inną godzinę.");
+      return;
+    }
+    store.moveAppointment(currentAppointment.id, date, time);
+    onClose();
+  }
+
   return (
     <div className="modal-backdrop" onMouseDown={onClose}>
       <div className="modal" onMouseDown={(event) => event.stopPropagation()}>
         <div className="section-head">
           <div>
             <h2>Zmień termin wizyty</h2>
-            <p className="muted">Wybierz nowy dzień i godzinę.</p>
+            <p className="muted">Wybierz nowy dzień i godzinę. Pracownik: {employee?.name || "przypisany groomer"}.</p>
           </div>
           <button className="btn btn-outline" onClick={onClose}>Zamknij</button>
         </div>
         <h3>Data</h3>
         <div className="date-row">
           {demoDates.map((item) => (
-            <button className={`pill-date ${date === item ? "active" : ""}`} key={item} onClick={() => setDate(item)}>
+            <button className={`pill-date ${date === item ? "active" : ""}`} key={item} onClick={() => {
+              setDate(item);
+              setError("");
+            }}>
               {item.slice(8, 10)}.07
             </button>
           ))}
         </div>
         <h3 style={{ marginTop: 18 }}>Godzina</h3>
         <div className="time-row">
-          {demoTimes.map((item) => (
-            <button className={`pill-time ${time === item ? "active" : ""}`} key={item} onClick={() => setTime(item)}>
-              {item}
+          {timeOptions.map((item) => (
+            <button
+              className={`pill-time ${time === item.time ? "active" : ""}`}
+              key={item.time}
+              disabled={!item.available}
+              onClick={() => {
+                if (!item.available) return;
+                setTime(item.time);
+                setError("");
+              }}
+            >
+              {item.time}
+              {!item.available ? <span className="blocked-label">zajęte</span> : null}
             </button>
           ))}
         </div>
+        {error ? <div className="inline-alert danger" style={{ marginTop: 16 }}>{error}</div> : null}
+        {!timeOptions.some((item) => item.available) ? <div className="inline-alert danger" style={{ marginTop: 16 }}>Brak wolnych terminów tego dnia dla przypisanego pracownika.</div> : null}
         <button
           className="btn btn-primary"
           style={{ width: "100%", marginTop: 22 }}
-          onClick={() => {
-            store.moveAppointment(appointment.id, date, time);
-            onClose();
-          }}
+          disabled={hasEmployeeConflict(store.data.appointments, currentAppointment.employeeId, date, time, duration, currentAppointment.id)}
+          onClick={save}
         >
           Zapisz nowy termin
         </button>

@@ -28,8 +28,12 @@ import {
   demoDates,
   demoTimes,
   endTime,
+  findAvailableEmployee,
   formatDate,
   formatPrice,
+  hasEmployeeConflict,
+  isEmployeeAvailable,
+  rangesOverlap,
   useGroomerStore
 } from "@/lib/store";
 import { Appointment, Client, Service } from "@/lib/types";
@@ -279,6 +283,7 @@ function CalendarBoard({
   const [view, setView] = useState<CalendarView>("week");
   const [selectedDate, setSelectedDate] = useState(demoDates[0]);
   const [hoverSlot, setHoverSlot] = useState<string | null>(null);
+  const [calendarMessage, setCalendarMessage] = useState("");
   const visibleDates = view === "week" ? weekDates(selectedDate) : [selectedDate];
   const currentMonth = dateObj(selectedDate).getMonth();
 
@@ -295,7 +300,16 @@ function CalendarBoard({
   function handleDrop(event: React.DragEvent, date: string, time: string, employeeId?: string) {
     event.preventDefault();
     const appointmentId = event.dataTransfer.getData("appointmentId");
-    if (appointmentId) store.moveAppointment(appointmentId, date, time, employeeId);
+    const appointment = appointments.find((item) => item.id === appointmentId);
+    if (!appointment) return;
+    const targetEmployeeId = employeeId || appointment.employeeId;
+    if (hasEmployeeConflict(appointments, targetEmployeeId, date, time, appointment.durationMin, appointment.id)) {
+      setCalendarMessage("Nie można przenieść wizyty — ten pracownik ma już wizytę w tym czasie.");
+      setHoverSlot(null);
+      return;
+    }
+    store.moveAppointment(appointmentId, date, time, employeeId);
+    setCalendarMessage("");
     setHoverSlot(null);
   }
 
@@ -344,6 +358,7 @@ function CalendarBoard({
           </button>
         </div>
       </div>
+      {calendarMessage ? <div className="inline-alert danger" style={{ marginBottom: 16 }}>{calendarMessage}</div> : null}
 
       {view === "month" ? (
         <div className="month-grid">
@@ -393,18 +408,25 @@ function CalendarBoard({
                 {employees.map((employee) => {
                   const id = `${selectedDate}-${time}-${employee.id}`;
                   const inSlot = getAppointments(selectedDate, time, employee.id);
+                  const blockedByOverlap = !inSlot.length && hasEmployeeConflict(appointments, employee.id, selectedDate, time, 1);
                   return (
                     <button
                       key={id}
-                      className={`calendar-cell slot-button ${hoverSlot === id ? "drop-hover" : ""}`}
-                      onClick={() => openAppointment({ date: selectedDate, time, employeeId: employee.id })}
+                      className={`calendar-cell slot-button ${hoverSlot === id ? "drop-hover" : ""} ${blockedByOverlap ? "busy-slot" : ""}`}
+                      onClick={() => {
+                        if (blockedByOverlap) {
+                          setCalendarMessage("Ten fragment dnia jest zajęty przez dłuższą wizytę pracownika.");
+                          return;
+                        }
+                        openAppointment({ date: selectedDate, time, employeeId: employee.id });
+                      }}
                       onDragOver={(event) => {
                         event.preventDefault();
                         setHoverSlot(id);
                       }}
                       onDragLeave={() => setHoverSlot(null)}
                       onDrop={(event) => handleDrop(event, selectedDate, time, employee.id)}
-                      title="Kliknij, aby dodać wizytę w tym slocie"
+                      title={blockedByOverlap ? "Zajęte przez inną wizytę" : "Kliknij, aby dodać wizytę w tym slocie"}
                     >
                       {inSlot.length ? (
                         <div className="table-list">
@@ -412,6 +434,8 @@ function CalendarBoard({
                             <CalendarAppointment key={appointment.id} store={store} appointment={appointment} openEdit={openEdit} />
                           ))}
                         </div>
+                      ) : blockedByOverlap ? (
+                        <span className="empty-slot blocked">zajęte</span>
                       ) : (
                         <span className="empty-slot">+ wolny termin</span>
                       )}
@@ -948,6 +972,7 @@ function EditAppointmentModal({ store, appointmentId, onClose }: { store: Return
   const salon = store.data.salons[0];
   const appointment = store.data.appointments.find((item) => item.id === appointmentId);
   const [form, setForm] = useState(() => appointment ? { ...appointment } : null);
+  const [error, setError] = useState("");
 
   if (!appointment || !form) return null;
 
@@ -958,6 +983,10 @@ function EditAppointmentModal({ store, appointmentId, onClose }: { store: Return
 
   function save() {
     if (!form) return;
+    if (hasEmployeeConflict(store.data.appointments, form.employeeId, form.date, form.time, selectedService.durationMin, form.id)) {
+      setError("Nie można zapisać zmian — wybrany pracownik ma już wizytę w tym czasie.");
+      return;
+    }
     const normalizedPayment = deposit === 0 ? "zwolniony" : form.paymentStatus;
     store.updateAppointment({
       ...form,
@@ -1018,7 +1047,10 @@ function EditAppointmentModal({ store, appointmentId, onClose }: { store: Return
           <label className="form-field">
             Godzina
             <select className="select" value={form.time} onChange={(e) => setForm({ ...form, time: e.target.value })}>
-              {demoTimes.map((time) => <option key={time} value={time}>{time}</option>)}
+              {demoTimes.map((time) => {
+                const unavailable = !isEmployeeAvailable(store.data.appointments, form.employeeId, form.date, time, selectedService.durationMin, form.id);
+                return <option key={time} value={time} disabled={unavailable}>{time}{unavailable ? " — zajęte" : ""}</option>;
+              })}
             </select>
           </label>
           <label className="form-field">
@@ -1047,6 +1079,7 @@ function EditAppointmentModal({ store, appointmentId, onClose }: { store: Return
             <textarea className="textarea" value={form.notes || ""} onChange={(e) => setForm({ ...form, notes: e.target.value })} />
           </label>
         </div>
+        {error ? <div className="inline-alert danger" style={{ marginTop: 16 }}>{error}</div> : null}
         <div className="card" style={{ marginTop: 16, boxShadow: "none" }}>
           <InfoLine label="Cena po zmianach" value={formatPrice(selectedService.price)} />
           <InfoLine label="Czas" value={`${selectedService.durationMin} min`} />
@@ -1076,22 +1109,53 @@ function AppointmentModal({ store, initial, onClose }: { store: ReturnType<typeo
   const client = store.data.clients[0];
   const pet = store.data.pets.find((item) => item.clientId === client.id) || store.data.pets[0];
   const service = store.data.services[0];
-  const employee = store.data.employees[0];
+  const activeEmployees = store.data.employees.filter((item) => item.salonId === salon.id && item.active);
+  const initialDate = initial?.date || demoDates[0];
+  const initialTime = initial?.time || demoTimes[0];
+  const suggestedEmployee = initial?.employeeId
+    ? activeEmployees.find((item) => item.id === initial.employeeId)
+    : findAvailableEmployee(activeEmployees, store.data.appointments, initialDate, initialTime, service.durationMin);
+  const employee = suggestedEmployee || activeEmployees[0] || store.data.employees[0];
   const [form, setForm] = useState({
     clientId: client.id,
     petId: pet.id,
     serviceId: service.id,
-    employeeId: initial?.employeeId || employee.id,
-    date: initial?.date || demoDates[0],
-    time: initial?.time || demoTimes[0],
+    employeeId: employee.id,
+    date: initialDate,
+    time: initialTime,
     source: "manual" as "manual" | "online",
     notes: ""
   });
+  const [error, setError] = useState("");
 
   const selectedClient = store.data.clients.find((item) => item.id === form.clientId) || client;
   const pets = store.data.pets.filter((item) => item.clientId === form.clientId);
   const selectedService = store.data.services.find((item) => item.id === form.serviceId) || service;
   const deposit = calculateDeposit(salon, selectedService, selectedClient);
+
+  function saveAppointment() {
+    if (hasEmployeeConflict(store.data.appointments, form.employeeId, form.date, form.time, selectedService.durationMin)) {
+      setError("Nie można dodać wizyty — wybrany pracownik ma już wizytę w tym czasie.");
+      return;
+    }
+    store.addAppointment({
+      salonId: salon.id,
+      clientId: form.clientId,
+      petId: form.petId,
+      serviceId: form.serviceId,
+      employeeId: form.employeeId,
+      date: form.date,
+      time: form.time,
+      durationMin: selectedService.durationMin,
+      price: selectedService.price,
+      depositAmount: deposit,
+      status: deposit > 0 ? "oczekuje_na_zadatek" : "potwierdzona",
+      paymentStatus: deposit > 0 ? "oczekuje" : "zwolniony",
+      source: "manual",
+      notes: form.notes
+    });
+    onClose();
+  }
 
   return (
     <div className="modal-backdrop" onMouseDown={onClose}>
@@ -1138,9 +1202,10 @@ function AppointmentModal({ store, initial, onClose }: { store: ReturnType<typeo
           <label className="form-field">
             Pracownik
             <select className="select" value={form.employeeId} onChange={(e) => setForm({ ...form, employeeId: e.target.value })}>
-              {store.data.employees.map((item) => (
-                <option key={item.id} value={item.id}>{item.name}</option>
-              ))}
+              {activeEmployees.map((item) => {
+                const unavailable = !isEmployeeAvailable(store.data.appointments, item.id, form.date, form.time, selectedService.durationMin);
+                return <option key={item.id} value={item.id} disabled={unavailable}>{item.name}{unavailable ? " — zajęty" : ""}</option>;
+              })}
             </select>
           </label>
           <label className="form-field">
@@ -1152,7 +1217,10 @@ function AppointmentModal({ store, initial, onClose }: { store: ReturnType<typeo
           <label className="form-field">
             Godzina
             <select className="select" value={form.time} onChange={(e) => setForm({ ...form, time: e.target.value })}>
-              {demoTimes.map((time) => <option key={time} value={time}>{time}</option>)}
+              {demoTimes.map((time) => {
+                const unavailable = !isEmployeeAvailable(store.data.appointments, form.employeeId, form.date, time, selectedService.durationMin);
+                return <option key={time} value={time} disabled={unavailable}>{time}{unavailable ? " — zajęte" : ""}</option>;
+              })}
             </select>
           </label>
           <label className="form-field full">
@@ -1160,6 +1228,7 @@ function AppointmentModal({ store, initial, onClose }: { store: ReturnType<typeo
             <textarea className="textarea" value={form.notes} onChange={(e) => setForm({ ...form, notes: e.target.value })} />
           </label>
         </div>
+        {error ? <div className="inline-alert danger" style={{ marginTop: 16 }}>{error}</div> : null}
         <div className="card" style={{ marginTop: 16, boxShadow: "none" }}>
           <InfoLine label="Cena" value={formatPrice(selectedService.price)} />
           <InfoLine label="Czas" value={`${selectedService.durationMin} min`} />
@@ -1168,25 +1237,7 @@ function AppointmentModal({ store, initial, onClose }: { store: ReturnType<typeo
         <button
           className="btn btn-primary"
           style={{ width: "100%", marginTop: 16 }}
-          onClick={() => {
-            store.addAppointment({
-              salonId: salon.id,
-              clientId: form.clientId,
-              petId: form.petId,
-              serviceId: form.serviceId,
-              employeeId: form.employeeId,
-              date: form.date,
-              time: form.time,
-              durationMin: selectedService.durationMin,
-              price: selectedService.price,
-              depositAmount: deposit,
-              status: deposit > 0 ? "oczekuje_na_zadatek" : "potwierdzona",
-              paymentStatus: deposit > 0 ? "oczekuje" : "zwolniony",
-              source: "manual",
-              notes: form.notes
-            });
-            onClose();
-          }}
+          onClick={saveAppointment}
         >
           Zapisz wizytę
         </button>
