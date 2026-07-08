@@ -57,3 +57,13 @@ Nie wrzucaj na GitHub folderów:
 - `node_modules/`
 - `.next/`
 - `package-lock.json`
+
+
+## Aktualizacja v5
+
+- Poprawione mobile: dolny pasek rezerwacji nie zasłania już treści, a modale panelu są nad dolną nawigacją.
+- Mobilna nawigacja w panelu groomera i klienta ma teraz 4 główne pozycje + przycisk „Więcej”, bez ukrytego przewijania poziomego.
+- Terminy generują się co 15 minut.
+- Drag & drop w kalendarzu obsługuje sloty 09:15, 09:30, 09:45 itd.
+- W procesie rezerwacji klient widzi tylko dostępne godziny — zajęte terminy są ukryte.
+- System nadal blokuje nakładające się wizyty u tego samego pracownika i pilnuje godzin pracy salonu.

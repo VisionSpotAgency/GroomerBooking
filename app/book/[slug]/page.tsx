@@ -12,6 +12,7 @@ import {
   formatDate,
   formatPrice,
   isEmployeeAvailable,
+  isWithinWorkingDay,
   useGroomerStore
 } from "@/lib/store";
 import { Appointment, Service } from "@/lib/types";
@@ -58,7 +59,8 @@ export default function BookingPage() {
   const deposit = service ? calculateDeposit(salon, service, selectedClient) : 0;
   const total = service?.price || 0;
   const activeAppointments = store.data.appointments.filter((item) => item.salonId === salon.id);
-  const availableEmployeeForSelection = service
+  const selectedTimeFits = service ? isWithinWorkingDay(selectedTime, service.durationMin) : false;
+  const availableEmployeeForSelection = service && selectedTimeFits
     ? selectedEmployeeId === "any"
       ? findAvailableEmployee(employees, activeAppointments, selectedDate, selectedTime, service.durationMin)
       : employees.find((item) => item.id === selectedEmployeeId && isEmployeeAvailable(activeAppointments, item.id, selectedDate, selectedTime, service.durationMin))
@@ -77,6 +79,11 @@ export default function BookingPage() {
 
   function finishBooking() {
     if (!service) return;
+    if (!isWithinWorkingDay(selectedTime, service.durationMin)) {
+      setBookingError("Wybrana usługa nie mieści się w godzinach pracy salonu. Wybierz inną godzinę.");
+      setStep(2);
+      return;
+    }
     const finalEmployee = selectedEmployeeId === "any"
       ? findAvailableEmployee(employees, activeAppointments, selectedDate, selectedTime, service.durationMin)
       : employees.find((item) => item.id === selectedEmployeeId && isEmployeeAvailable(activeAppointments, item.id, selectedDate, selectedTime, service.durationMin));
@@ -280,26 +287,30 @@ function DateStep({
   serviceDuration: number;
 }) {
   const timeOptions = demoTimes.map((time) => {
-    const availableEmployees = employees.filter((employee) =>
-      isEmployeeAvailable(appointments, employee.id, selectedDate, time, serviceDuration)
-    );
+    const fitsWorkingDay = isWithinWorkingDay(time, serviceDuration);
+    const availableEmployees = fitsWorkingDay
+      ? employees.filter((employee) =>
+          isEmployeeAvailable(appointments, employee.id, selectedDate, time, serviceDuration)
+        )
+      : [];
     const available = selectedEmployeeId === "any"
       ? availableEmployees.length > 0
       : availableEmployees.some((employee) => employee.id === selectedEmployeeId);
     return { time, available, availableEmployees };
   });
+  const availableTimeOptions = timeOptions.filter((item) => item.available);
 
   useEffect(() => {
-    const current = timeOptions.find((item) => item.time === selectedTime);
-    if (current?.available) return;
-    const firstAvailable = timeOptions.find((item) => item.available);
+    const current = availableTimeOptions.find((item) => item.time === selectedTime);
+    if (current) return;
+    const firstAvailable = availableTimeOptions[0];
     if (firstAvailable) setSelectedTime(firstAvailable.time);
   }, [selectedDate, selectedEmployeeId, serviceDuration]);
 
   return (
     <div>
       <h2>Wybierz pracownika i termin</h2>
-      <p className="muted">Zajęte godziny są blokowane według czasu trwania wybranej usługi, więc jeden pracownik nie dostanie dwóch wizyt w tym samym czasie.</p>
+      <p className="muted">Pokazujemy tylko wolne godziny. Terminy zajęte u wybranego pracownika są automatycznie ukryte.</p>
       <div className="date-row" style={{ margin: "18px 0" }}>
         <button className={`choice-card ${selectedEmployeeId === "any" ? "active" : ""}`} style={{ minWidth: 130 }} onClick={() => setSelectedEmployeeId("any")}>
           <User />
@@ -325,20 +336,18 @@ function DateStep({
       </div>
       <h3 style={{ marginTop: 18 }}>Godzina</h3>
       <div className="time-row">
-        {timeOptions.map(({ time, available, availableEmployees }) => (
+        {availableTimeOptions.map(({ time, availableEmployees }) => (
           <button
             className={`pill-time ${selectedTime === time ? "active" : ""}`}
             key={time}
-            onClick={() => available && setSelectedTime(time)}
-            disabled={!available}
-            title={available ? `Dostępne osoby: ${availableEmployees.map((employee) => employee.name).join(", ")}` : "Termin zajęty"}
+            onClick={() => setSelectedTime(time)}
+            title={`Dostępne osoby: ${availableEmployees.map((employee) => employee.name).join(", ")}`}
           >
             {time}
-            {!available ? <span className="blocked-label">zajęte</span> : null}
           </button>
         ))}
       </div>
-      {!timeOptions.some((item) => item.available) ? (
+      {!availableTimeOptions.length ? (
         <div className="inline-alert danger" style={{ marginTop: 12 }}>
           Brak wolnych terminów dla tej kombinacji usługi, daty i pracownika.
         </div>

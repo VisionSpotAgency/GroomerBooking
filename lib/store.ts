@@ -285,4 +285,23 @@ export const demoDates = [
   "2026-07-16"
 ];
 
-export const demoTimes = ["09:00", "10:00", "11:00", "12:30", "13:00", "14:00", "15:00", "16:00"];
+
+export const workingDayStartMin = 9 * 60;
+export const workingDayEndMin = 18 * 60;
+
+export function isWithinWorkingDay(time: string, durationMin = 0) {
+  const start = minutesFromTime(time);
+  return start >= workingDayStartMin && start + durationMin <= workingDayEndMin;
+}
+
+function timeFromMinutes(total: number) {
+  const hh = String(Math.floor(total / 60)).padStart(2, "0");
+  const mm = String(total % 60).padStart(2, "0");
+  return `${hh}:${mm}`;
+}
+
+export const demoTimes = Array.from(
+  { length: Math.floor((workingDayEndMin - workingDayStartMin) / 15) },
+  (_, index) => timeFromMinutes(workingDayStartMin + index * 15)
+);
+

@@ -9,10 +9,12 @@ import {
   Home,
   ImagePlus,
   LogOut,
+  MoreHorizontal,
   PawPrint,
   Star,
   User,
-  WalletCards
+  WalletCards,
+  X
 } from "lucide-react";
 import { Logo, StatusBadge } from "@/components/Common";
 import {
@@ -23,6 +25,7 @@ import {
   formatPrice,
   hasEmployeeConflict,
   isEmployeeAvailable,
+  isWithinWorkingDay,
   useGroomerStore
 } from "@/lib/store";
 import { Appointment } from "@/lib/types";
@@ -105,18 +108,55 @@ function ClientMobileTabBar({
   activeTab: ClientTab;
   setActiveTab: (tab: ClientTab) => void;
 }) {
+  const [moreOpen, setMoreOpen] = useState(false);
+  const primaryIds: ClientTab[] = ["visits", "pets", "profile", "payments"];
+  const primaryTabs = tabs.filter((tab) => primaryIds.includes(tab.id));
+  const moreTabs = tabs.filter((tab) => !primaryIds.includes(tab.id));
+  const activeInMore = moreTabs.some((tab) => tab.id === activeTab);
+
+  function choose(tab: ClientTab) {
+    setActiveTab(tab);
+    setMoreOpen(false);
+  }
+
   return (
-    <nav className="mobile-tabbar" aria-label="Nawigacja panelu klienta">
-      {tabs.map((tab) => {
-        const Icon = tab.icon;
-        return (
-          <button key={tab.id} className={activeTab === tab.id ? "active" : ""} onClick={() => setActiveTab(tab.id)}>
-            <Icon size={18} />
-            <span>{tab.label}</span>
-          </button>
-        );
-      })}
-    </nav>
+    <>
+      {moreOpen ? <button className="mobile-more-backdrop" aria-label="Zamknij więcej" onClick={() => setMoreOpen(false)} /> : null}
+      {moreOpen ? (
+        <div className="mobile-more-sheet" role="dialog" aria-label="Pozostałe sekcje panelu klienta">
+          <div className="mobile-more-head">
+            <strong>Więcej sekcji</strong>
+            <button className="btn btn-small btn-outline" onClick={() => setMoreOpen(false)}><X size={16} /> Zamknij</button>
+          </div>
+          <div className="mobile-more-grid">
+            {moreTabs.map((tab) => {
+              const Icon = tab.icon;
+              return (
+                <button key={tab.id} className={activeTab === tab.id ? "active" : ""} onClick={() => choose(tab.id)}>
+                  <Icon size={20} />
+                  <span>{tab.label}</span>
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      ) : null}
+      <nav className="mobile-tabbar" aria-label="Nawigacja panelu klienta">
+        {primaryTabs.map((tab) => {
+          const Icon = tab.icon;
+          return (
+            <button key={tab.id} className={activeTab === tab.id ? "active" : ""} onClick={() => choose(tab.id)}>
+              <Icon size={18} />
+              <span>{tab.label}</span>
+            </button>
+          );
+        })}
+        <button className={activeInMore || moreOpen ? "active" : ""} onClick={() => setMoreOpen((open) => !open)}>
+          <MoreHorizontal size={18} />
+          <span>Więcej</span>
+        </button>
+      </nav>
+    </>
   );
 }
 
@@ -203,10 +243,15 @@ function RescheduleModal({ store, appointmentId, onClose }: { store: ReturnType<
   const duration = service?.durationMin || currentAppointment.durationMin;
   const timeOptions = demoTimes.map((item) => ({
     time: item,
-    available: isEmployeeAvailable(store.data.appointments, currentAppointment.employeeId, date, item, duration, currentAppointment.id)
+    available: isWithinWorkingDay(item, duration) && isEmployeeAvailable(store.data.appointments, currentAppointment.employeeId, date, item, duration, currentAppointment.id)
   }));
+  const availableTimeOptions = timeOptions.filter((item) => item.available);
 
   function save() {
+    if (!isWithinWorkingDay(time, duration)) {
+      setError("Wybrana usługa nie mieści się w godzinach pracy salonu.");
+      return;
+    }
     if (hasEmployeeConflict(store.data.appointments, currentAppointment.employeeId, date, time, duration, currentAppointment.id)) {
       setError("Ten termin jest już zajęty u wybranego pracownika. Wybierz inną godzinę.");
       return;
@@ -238,28 +283,25 @@ function RescheduleModal({ store, appointmentId, onClose }: { store: ReturnType<
         </div>
         <h3 style={{ marginTop: 18 }}>Godzina</h3>
         <div className="time-row">
-          {timeOptions.map((item) => (
+          {availableTimeOptions.map((item) => (
             <button
               className={`pill-time ${time === item.time ? "active" : ""}`}
               key={item.time}
-              disabled={!item.available}
               onClick={() => {
-                if (!item.available) return;
                 setTime(item.time);
                 setError("");
               }}
             >
               {item.time}
-              {!item.available ? <span className="blocked-label">zajęte</span> : null}
             </button>
           ))}
         </div>
         {error ? <div className="inline-alert danger" style={{ marginTop: 16 }}>{error}</div> : null}
-        {!timeOptions.some((item) => item.available) ? <div className="inline-alert danger" style={{ marginTop: 16 }}>Brak wolnych terminów tego dnia dla przypisanego pracownika.</div> : null}
+        {!availableTimeOptions.length ? <div className="inline-alert danger" style={{ marginTop: 16 }}>Brak wolnych terminów tego dnia dla przypisanego pracownika.</div> : null}
         <button
           className="btn btn-primary"
           style={{ width: "100%", marginTop: 22 }}
-          disabled={hasEmployeeConflict(store.data.appointments, currentAppointment.employeeId, date, time, duration, currentAppointment.id)}
+          disabled={!isWithinWorkingDay(time, duration) || hasEmployeeConflict(store.data.appointments, currentAppointment.employeeId, date, time, duration, currentAppointment.id)}
           onClick={save}
         >
           Zapisz nowy termin

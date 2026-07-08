@@ -15,6 +15,8 @@ import {
   LogOut,
   PawPrint,
   Plus,
+  MoreHorizontal,
+  X,
   RefreshCcw,
   Scissors,
   Settings,
@@ -34,6 +36,7 @@ import {
   hasEmployeeConflict,
   minutesFromTime,
   isEmployeeAvailable,
+  isWithinWorkingDay,
   rangesOverlap,
   useGroomerStore
 } from "@/lib/store";
@@ -317,6 +320,11 @@ function CalendarBoard({
     const appointment = appointments.find((item) => item.id === appointmentId);
     if (!appointment) return;
     const targetEmployeeId = employeeId || appointment.employeeId;
+    if (!isWithinWorkingDay(time, appointment.durationMin)) {
+      setCalendarMessage("Nie można przenieść wizyty — wybrana usługa nie mieści się w godzinach pracy salonu.");
+      setHoverSlot(null);
+      return;
+    }
     if (hasEmployeeConflict(appointments, targetEmployeeId, date, time, appointment.durationMin, appointment.id)) {
       setCalendarMessage("Nie można przenieść wizyty — ten pracownik ma już wizytę w tym czasie.");
       setHoverSlot(null);
@@ -456,7 +464,7 @@ function CalendarBoard({
                         onDrop={(event) => handleDrop(event, selectedDate, time, employee.id)}
                         title="Kliknij, aby dodać wizytę w tym slocie"
                       >
-                        + wolny termin
+                        + {time}
                       </button>
                     );
                   })}
@@ -983,18 +991,55 @@ function MobileTabBar({
   activeTab: TabId;
   setActiveTab: (tab: TabId) => void;
 }) {
+  const [moreOpen, setMoreOpen] = useState(false);
+  const primaryIds: TabId[] = ["dashboard", "calendar", "appointments", "clients"];
+  const primaryTabs = tabs.filter((tab) => primaryIds.includes(tab.id));
+  const moreTabs = tabs.filter((tab) => !primaryIds.includes(tab.id));
+  const activeInMore = moreTabs.some((tab) => tab.id === activeTab);
+
+  function choose(tab: TabId) {
+    setActiveTab(tab);
+    setMoreOpen(false);
+  }
+
   return (
-    <nav className="mobile-tabbar" aria-label="Nawigacja panelu groomera">
-      {tabs.map((tab) => {
-        const Icon = tab.icon;
-        return (
-          <button key={tab.id} className={activeTab === tab.id ? "active" : ""} onClick={() => setActiveTab(tab.id)}>
-            <Icon size={18} />
-            <span>{tab.label}</span>
-          </button>
-        );
-      })}
-    </nav>
+    <>
+      {moreOpen ? <button className="mobile-more-backdrop" aria-label="Zamknij więcej" onClick={() => setMoreOpen(false)} /> : null}
+      {moreOpen ? (
+        <div className="mobile-more-sheet" role="dialog" aria-label="Pozostałe sekcje panelu groomera">
+          <div className="mobile-more-head">
+            <strong>Więcej sekcji</strong>
+            <button className="btn btn-small btn-outline" onClick={() => setMoreOpen(false)}><X size={16} /> Zamknij</button>
+          </div>
+          <div className="mobile-more-grid">
+            {moreTabs.map((tab) => {
+              const Icon = tab.icon;
+              return (
+                <button key={tab.id} className={activeTab === tab.id ? "active" : ""} onClick={() => choose(tab.id)}>
+                  <Icon size={20} />
+                  <span>{tab.label}</span>
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      ) : null}
+      <nav className="mobile-tabbar" aria-label="Nawigacja panelu groomera">
+        {primaryTabs.map((tab) => {
+          const Icon = tab.icon;
+          return (
+            <button key={tab.id} className={activeTab === tab.id ? "active" : ""} onClick={() => choose(tab.id)}>
+              <Icon size={18} />
+              <span>{tab.label}</span>
+            </button>
+          );
+        })}
+        <button className={activeInMore || moreOpen ? "active" : ""} onClick={() => setMoreOpen((open) => !open)}>
+          <MoreHorizontal size={18} />
+          <span>Więcej</span>
+        </button>
+      </nav>
+    </>
   );
 }
 
@@ -1013,6 +1058,10 @@ function EditAppointmentModal({ store, appointmentId, onClose }: { store: Return
 
   function save() {
     if (!form) return;
+    if (!isWithinWorkingDay(form.time, selectedService.durationMin)) {
+      setError("Nie można zapisać zmian — wybrana usługa nie mieści się w godzinach pracy salonu.");
+      return;
+    }
     if (hasEmployeeConflict(store.data.appointments, form.employeeId, form.date, form.time, selectedService.durationMin, form.id)) {
       setError("Nie można zapisać zmian — wybrany pracownik ma już wizytę w tym czasie.");
       return;
@@ -1164,6 +1213,10 @@ function AppointmentModal({ store, initial, onClose }: { store: ReturnType<typeo
   const deposit = calculateDeposit(salon, selectedService, selectedClient);
 
   function saveAppointment() {
+    if (!isWithinWorkingDay(form.time, selectedService.durationMin)) {
+      setError("Nie można dodać wizyty — wybrana usługa nie mieści się w godzinach pracy salonu.");
+      return;
+    }
     if (hasEmployeeConflict(store.data.appointments, form.employeeId, form.date, form.time, selectedService.durationMin)) {
       setError("Nie można dodać wizyty — wybrany pracownik ma już wizytę w tym czasie.");
       return;
