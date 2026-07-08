@@ -1,14 +1,16 @@
 "use client";
 
 import Link from "next/link";
-import React, { useMemo, useState } from "react";
+import React, { useState } from "react";
 import {
   BarChart3,
   CalendarDays,
+  ChevronLeft,
+  ChevronRight,
   CheckCircle2,
   CreditCard,
-  Heart,
   Home,
+  Edit3,
   ImagePlus,
   LogOut,
   PawPrint,
@@ -17,6 +19,7 @@ import {
   Scissors,
   Settings,
   Star,
+  Trash2,
   Users
 } from "lucide-react";
 import { Logo, StatusBadge } from "@/components/Common";
@@ -27,10 +30,9 @@ import {
   endTime,
   formatDate,
   formatPrice,
-  uid,
   useGroomerStore
 } from "@/lib/store";
-import { Appointment, Client, Employee, Pet, Service } from "@/lib/types";
+import { Appointment, Client, Service } from "@/lib/types";
 
 type TabId =
   | "dashboard"
@@ -57,20 +59,79 @@ const tabs: { id: TabId; label: string; icon: React.ElementType }[] = [
   { id: "settings", label: "Ustawienia", icon: Settings }
 ];
 
+type CalendarView = "day" | "week" | "month";
+
+function dateObj(iso: string) {
+  return new Date(`${iso}T00:00:00`);
+}
+
+function toIsoDate(date: Date) {
+  const y = date.getFullYear();
+  const m = String(date.getMonth() + 1).padStart(2, "0");
+  const d = String(date.getDate()).padStart(2, "0");
+  return `${y}-${m}-${d}`;
+}
+
+function shiftIsoDate(iso: string, amount: number) {
+  const next = dateObj(iso);
+  next.setDate(next.getDate() + amount);
+  return toIsoDate(next);
+}
+
+function weekDates(iso: string) {
+  const base = dateObj(iso);
+  const day = base.getDay() || 7;
+  base.setDate(base.getDate() - day + 1);
+  return Array.from({ length: 7 }, (_, index) => {
+    const next = new Date(base);
+    next.setDate(base.getDate() + index);
+    return toIsoDate(next);
+  });
+}
+
+function monthCells(iso: string) {
+  const base = dateObj(iso);
+  const first = new Date(base.getFullYear(), base.getMonth(), 1);
+  const startOffset = (first.getDay() + 6) % 7;
+  const start = new Date(first);
+  start.setDate(first.getDate() - startOffset);
+  return Array.from({ length: 42 }, (_, index) => {
+    const next = new Date(start);
+    next.setDate(start.getDate() + index);
+    return toIsoDate(next);
+  });
+}
+
+function dayLabel(iso: string) {
+  return new Intl.DateTimeFormat("pl-PL", { weekday: "short", day: "2-digit", month: "2-digit" }).format(dateObj(iso));
+}
+
+function monthLabel(iso: string) {
+  return new Intl.DateTimeFormat("pl-PL", { month: "long", year: "numeric" }).format(dateObj(iso));
+}
+
+
 export default function GroomerPanel() {
   const store = useGroomerStore();
   const [activeTab, setActiveTab] = useState<TabId>("dashboard");
   const [appointmentModalOpen, setAppointmentModalOpen] = useState(false);
+  const [appointmentInitial, setAppointmentInitial] = useState<Partial<Appointment> | null>(null);
+  const [editAppointmentId, setEditAppointmentId] = useState<string | null>(null);
   const [serviceModalOpen, setServiceModalOpen] = useState(false);
+
+  function openAppointment(initial?: Partial<Appointment>) {
+    setAppointmentInitial(initial || null);
+    setAppointmentModalOpen(true);
+  }
   const salon = store.data.salons[0];
   const employees = store.data.employees.filter((item) => item.salonId === salon.id);
   const services = store.data.services.filter((item) => item.salonId === salon.id);
   const appointments = store.data.appointments.filter((item) => item.salonId === salon.id);
 
   const content = {
-    dashboard: <Dashboard store={store} openAppointment={() => setAppointmentModalOpen(true)} />,
-    calendar: <CalendarBoard store={store} openAppointment={() => setAppointmentModalOpen(true)} />,
-    appointments: <AppointmentsTab store={store} openAppointment={() => setAppointmentModalOpen(true)} />,
+    dashboard: <Dashboard store={store} openAppointment={() => openAppointment()} openEdit={setEditAppointmentId} />,
+    calendar: <CalendarBoard store={store} openAppointment={openAppointment} openEdit={setEditAppointmentId} />,
+    appointments: <AppointmentsTab store={store} openAppointment={() => openAppointment()} openEdit={setEditAppointmentId} />,
     clients: <ClientsTab store={store} />,
     pets: <PetsTab store={store} />,
     services: <ServicesTab store={store} openService={() => setServiceModalOpen(true)} />,
@@ -129,20 +190,22 @@ export default function GroomerPanel() {
             <button className="btn btn-outline" onClick={store.reset}>
               <RefreshCcw size={16} /> Reset danych
             </button>
-            <button className="btn btn-primary" onClick={() => setAppointmentModalOpen(true)}>
+            <button className="btn btn-primary" onClick={() => openAppointment()}>
               <Plus size={18} /> Dodaj wizytę
             </button>
           </div>
         </div>
         {content}
       </main>
-      {appointmentModalOpen ? <AppointmentModal store={store} onClose={() => setAppointmentModalOpen(false)} /> : null}
+      <MobileTabBar tabs={tabs} activeTab={activeTab} setActiveTab={setActiveTab} />
+      {appointmentModalOpen ? <AppointmentModal store={store} initial={appointmentInitial} onClose={() => setAppointmentModalOpen(false)} /> : null}
+      {editAppointmentId ? <EditAppointmentModal store={store} appointmentId={editAppointmentId} onClose={() => setEditAppointmentId(null)} /> : null}
       {serviceModalOpen ? <ServiceModal store={store} onClose={() => setServiceModalOpen(false)} /> : null}
     </div>
   );
 }
 
-function Dashboard({ store, openAppointment }: { store: ReturnType<typeof useGroomerStore>; openAppointment: () => void }) {
+function Dashboard({ store, openAppointment, openEdit }: { store: ReturnType<typeof useGroomerStore>; openAppointment: () => void; openEdit: (id: string) => void }) {
   const salon = store.data.salons[0];
   const appointments = store.data.appointments.filter((item) => item.salonId === salon.id);
   const services = store.data.services.filter((item) => item.salonId === salon.id);
@@ -171,7 +234,7 @@ function Dashboard({ store, openAppointment }: { store: ReturnType<typeof useGro
           </div>
           <div className="table-list">
             {todayAppointments.map((appointment) => (
-              <AppointmentRow key={appointment.id} store={store} appointment={appointment} />
+              <AppointmentRow key={appointment.id} store={store} appointment={appointment} openEdit={openEdit} />
             ))}
           </div>
         </div>
@@ -201,83 +264,219 @@ function KpiCard({ icon: Icon, title, value, text }: { icon: React.ElementType; 
   );
 }
 
-function CalendarBoard({ store, openAppointment }: { store: ReturnType<typeof useGroomerStore>; openAppointment: () => void }) {
+function CalendarBoard({
+  store,
+  openAppointment,
+  openEdit
+}: {
+  store: ReturnType<typeof useGroomerStore>;
+  openAppointment: (initial?: Partial<Appointment>) => void;
+  openEdit: (id: string) => void;
+}) {
   const salon = store.data.salons[0];
+  const employees = store.data.employees.filter((item) => item.salonId === salon.id && item.active);
   const appointments = store.data.appointments.filter((item) => item.salonId === salon.id);
+  const [view, setView] = useState<CalendarView>("week");
+  const [selectedDate, setSelectedDate] = useState(demoDates[0]);
   const [hoverSlot, setHoverSlot] = useState<string | null>(null);
+  const visibleDates = view === "week" ? weekDates(selectedDate) : [selectedDate];
+  const currentMonth = dateObj(selectedDate).getMonth();
 
-  function getAppointments(date: string, time: string) {
-    return appointments.filter((item) => item.date === date && item.time === time && item.status !== "anulowana");
+  function getAppointments(date: string, time?: string, employeeId?: string) {
+    return appointments.filter((item) => {
+      if (item.status === "anulowana") return false;
+      if (item.date !== date) return false;
+      if (time && item.time !== time) return false;
+      if (employeeId && item.employeeId !== employeeId) return false;
+      return true;
+    });
+  }
+
+  function handleDrop(event: React.DragEvent, date: string, time: string, employeeId?: string) {
+    event.preventDefault();
+    const appointmentId = event.dataTransfer.getData("appointmentId");
+    if (appointmentId) store.moveAppointment(appointmentId, date, time, employeeId);
+    setHoverSlot(null);
+  }
+
+  function goPrevious() {
+    setSelectedDate((current) => {
+      if (view === "month") {
+        const next = dateObj(current);
+        next.setMonth(next.getMonth() - 1);
+        return toIsoDate(next);
+      }
+      return shiftIsoDate(current, view === "week" ? -7 : -1);
+    });
+  }
+
+  function goNext() {
+    setSelectedDate((current) => {
+      if (view === "month") {
+        const next = dateObj(current);
+        next.setMonth(next.getMonth() + 1);
+        return toIsoDate(next);
+      }
+      return shiftIsoDate(current, view === "week" ? 7 : 1);
+    });
   }
 
   return (
     <div className="card">
-      <div className="section-head">
+      <div className="section-head calendar-heading">
         <div>
-          <h3>Widok tygodniowy</h3>
-          <p className="muted">Przeciągnij wizytę na inną godzinę albo dzień. Zmiana zapisze się w localStorage.</p>
+          <h3>{view === "month" ? monthLabel(selectedDate) : view === "day" ? formatDate(selectedDate) : "Widok tygodniowy"}</h3>
+          <p className="muted">Klikaj dzień/tydzień/miesiąc, przeciągaj wizyty, albo kliknij kartę wizyty, żeby ją edytować.</p>
         </div>
-        <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
-          <div className="tabs">
-            <button>Dzień</button>
-            <button className="active">Tydzień</button>
-            <button>Miesiąc</button>
+        <div className="calendar-actions">
+          <div className="calendar-nav-group">
+            <button className="btn btn-outline btn-icon" onClick={goPrevious} aria-label="Poprzedni zakres"><ChevronLeft size={18} /></button>
+            <button className="btn btn-outline" onClick={() => setSelectedDate(demoDates[0])}>Dziś</button>
+            <button className="btn btn-outline btn-icon" onClick={goNext} aria-label="Następny zakres"><ChevronRight size={18} /></button>
           </div>
-          <button className="btn btn-primary" onClick={openAppointment}>
+          <div className="tabs">
+            <button className={view === "day" ? "active" : ""} onClick={() => setView("day")}>Dzień</button>
+            <button className={view === "week" ? "active" : ""} onClick={() => setView("week")}>Tydzień</button>
+            <button className={view === "month" ? "active" : ""} onClick={() => setView("month")}>Miesiąc</button>
+          </div>
+          <button className="btn btn-primary" onClick={() => openAppointment({ date: selectedDate })}>
             <Plus size={18} /> Dodaj wizytę
           </button>
         </div>
       </div>
-      <div className="calendar-wrap">
-        <div className="calendar-grid">
-          <div className="calendar-cell header">Godz.</div>
-          {demoDates.map((date) => (
-            <div className="calendar-cell header" key={date}>
-              <div>
-                <div>{new Intl.DateTimeFormat("pl-PL", { weekday: "short" }).format(new Date(`${date}T00:00:00`))}</div>
-                <div className="muted small">{date.slice(8, 10)}.07</div>
-              </div>
-            </div>
+
+      {view === "month" ? (
+        <div className="month-grid">
+          {["Pon", "Wt", "Śr", "Czw", "Pt", "Sob", "Niedz"].map((day) => (
+            <div className="month-weekday" key={day}>{day}</div>
           ))}
-          {demoTimes.map((time) => (
-            <React.Fragment key={time}>
-              <div className="calendar-cell time">{time}</div>
-              {demoDates.map((date) => {
-                const id = `${date}-${time}`;
-                const inSlot = getAppointments(date, time);
-                return (
-                  <div
-                    key={id}
-                    className={`calendar-cell ${hoverSlot === id ? "drop-hover" : ""}`}
-                    onDragOver={(event) => {
-                      event.preventDefault();
-                      setHoverSlot(id);
-                    }}
-                    onDragLeave={() => setHoverSlot(null)}
-                    onDrop={(event) => {
-                      event.preventDefault();
-                      const appointmentId = event.dataTransfer.getData("appointmentId");
-                      if (appointmentId) store.moveAppointment(appointmentId, date, time);
-                      setHoverSlot(null);
-                    }}
-                  >
-                    <div className="table-list">
-                      {inSlot.map((appointment) => (
-                        <CalendarAppointment key={appointment.id} store={store} appointment={appointment} />
-                      ))}
-                    </div>
-                  </div>
-                );
-              })}
-            </React.Fragment>
-          ))}
+          {monthCells(selectedDate).map((date) => {
+            const dayAppointments = getAppointments(date);
+            const inactive = dateObj(date).getMonth() !== currentMonth;
+            const isSelected = date === selectedDate;
+            return (
+              <button
+                key={date}
+                className={`month-cell ${inactive ? "inactive" : ""} ${isSelected ? "active" : ""}`}
+                onClick={() => {
+                  setSelectedDate(date);
+                  setView("day");
+                }}
+              >
+                <span className="month-day-number">{dateObj(date).getDate()}</span>
+                {dayAppointments.length ? <span className="badge">{dayAppointments.length} wiz.</span> : <span className="small muted">wolne</span>}
+                <div className="month-appointments">
+                  {dayAppointments.slice(0, 3).map((appointment) => {
+                    const pet = store.data.pets.find((item) => item.id === appointment.petId);
+                    return <span key={appointment.id}>{appointment.time} {pet?.name}</span>;
+                  })}
+                </div>
+              </button>
+            );
+          })}
         </div>
-      </div>
+      ) : null}
+
+      {view === "day" ? (
+        <div className="calendar-wrap">
+          <div className="day-calendar-grid" style={{ gridTemplateColumns: `74px repeat(${Math.max(1, employees.length)}, minmax(190px, 1fr))` }}>
+            <div className="calendar-cell header">Godz.</div>
+            {employees.map((employee) => (
+              <div className="calendar-cell header employee-header" key={employee.id}>
+                <img className="avatar" src={employee.avatar} alt={employee.name} />
+                <div>{employee.name}<div className="muted small">{employee.role}</div></div>
+              </div>
+            ))}
+            {demoTimes.map((time) => (
+              <React.Fragment key={time}>
+                <div className="calendar-cell time">{time}</div>
+                {employees.map((employee) => {
+                  const id = `${selectedDate}-${time}-${employee.id}`;
+                  const inSlot = getAppointments(selectedDate, time, employee.id);
+                  return (
+                    <button
+                      key={id}
+                      className={`calendar-cell slot-button ${hoverSlot === id ? "drop-hover" : ""}`}
+                      onClick={() => openAppointment({ date: selectedDate, time, employeeId: employee.id })}
+                      onDragOver={(event) => {
+                        event.preventDefault();
+                        setHoverSlot(id);
+                      }}
+                      onDragLeave={() => setHoverSlot(null)}
+                      onDrop={(event) => handleDrop(event, selectedDate, time, employee.id)}
+                      title="Kliknij, aby dodać wizytę w tym slocie"
+                    >
+                      {inSlot.length ? (
+                        <div className="table-list">
+                          {inSlot.map((appointment) => (
+                            <CalendarAppointment key={appointment.id} store={store} appointment={appointment} openEdit={openEdit} />
+                          ))}
+                        </div>
+                      ) : (
+                        <span className="empty-slot">+ wolny termin</span>
+                      )}
+                    </button>
+                  );
+                })}
+              </React.Fragment>
+            ))}
+          </div>
+        </div>
+      ) : null}
+
+      {view === "week" ? (
+        <div className="calendar-wrap">
+          <div className="calendar-grid">
+            <div className="calendar-cell header">Godz.</div>
+            {visibleDates.map((date) => (
+              <button className={`calendar-cell header calendar-date-head ${date === selectedDate ? "active" : ""}`} key={date} onClick={() => setSelectedDate(date)}>
+                <div>
+                  <div>{new Intl.DateTimeFormat("pl-PL", { weekday: "short" }).format(dateObj(date))}</div>
+                  <div className="muted small">{dayLabel(date)}</div>
+                </div>
+              </button>
+            ))}
+            {demoTimes.map((time) => (
+              <React.Fragment key={time}>
+                <div className="calendar-cell time">{time}</div>
+                {visibleDates.map((date) => {
+                  const id = `${date}-${time}`;
+                  const inSlot = getAppointments(date, time);
+                  return (
+                    <button
+                      key={id}
+                      className={`calendar-cell slot-button ${hoverSlot === id ? "drop-hover" : ""}`}
+                      onClick={() => openAppointment({ date, time })}
+                      onDragOver={(event) => {
+                        event.preventDefault();
+                        setHoverSlot(id);
+                      }}
+                      onDragLeave={() => setHoverSlot(null)}
+                      onDrop={(event) => handleDrop(event, date, time)}
+                      title="Kliknij, aby dodać wizytę w tym slocie"
+                    >
+                      {inSlot.length ? (
+                        <div className="table-list">
+                          {inSlot.map((appointment) => (
+                            <CalendarAppointment key={appointment.id} store={store} appointment={appointment} openEdit={openEdit} />
+                          ))}
+                        </div>
+                      ) : (
+                        <span className="empty-slot">+</span>
+                      )}
+                    </button>
+                  );
+                })}
+              </React.Fragment>
+            ))}
+          </div>
+        </div>
+      ) : null}
     </div>
   );
 }
 
-function CalendarAppointment({ store, appointment }: { store: ReturnType<typeof useGroomerStore>; appointment: Appointment }) {
+function CalendarAppointment({ store, appointment, openEdit }: { store: ReturnType<typeof useGroomerStore>; appointment: Appointment; openEdit: (id: string) => void }) {
   const service = store.data.services.find((item) => item.id === appointment.serviceId);
   const pet = store.data.pets.find((item) => item.id === appointment.petId);
   const client = store.data.clients.find((item) => item.id === appointment.clientId);
@@ -286,8 +485,15 @@ function CalendarAppointment({ store, appointment }: { store: ReturnType<typeof 
     <div
       className={`appointment-card ${employee?.color || ""}`}
       draggable
-      onDragStart={(event) => event.dataTransfer.setData("appointmentId", appointment.id)}
-      title="Przeciągnij wizytę"
+      onDragStart={(event) => {
+        event.stopPropagation();
+        event.dataTransfer.setData("appointmentId", appointment.id);
+      }}
+      onClick={(event) => {
+        event.stopPropagation();
+        openEdit(appointment.id);
+      }}
+      title="Kliknij, żeby edytować. Przeciągnij, żeby zmienić termin."
     >
       <strong>
         {appointment.time} - {endTime(appointment.time, appointment.durationMin)}
@@ -298,7 +504,7 @@ function CalendarAppointment({ store, appointment }: { store: ReturnType<typeof 
   );
 }
 
-function AppointmentsTab({ store, openAppointment }: { store: ReturnType<typeof useGroomerStore>; openAppointment: () => void }) {
+function AppointmentsTab({ store, openAppointment, openEdit }: { store: ReturnType<typeof useGroomerStore>; openAppointment: () => void; openEdit: (id: string) => void }) {
   const salon = store.data.salons[0];
   const appointments = [...store.data.appointments]
     .filter((item) => item.salonId === salon.id)
@@ -317,14 +523,14 @@ function AppointmentsTab({ store, openAppointment }: { store: ReturnType<typeof 
       </div>
       <div className="table-list">
         {appointments.map((appointment) => (
-          <AppointmentRow key={appointment.id} store={store} appointment={appointment} />
+          <AppointmentRow key={appointment.id} store={store} appointment={appointment} openEdit={openEdit} />
         ))}
       </div>
     </div>
   );
 }
 
-function AppointmentRow({ store, appointment }: { store: ReturnType<typeof useGroomerStore>; appointment: Appointment }) {
+function AppointmentRow({ store, appointment, openEdit }: { store: ReturnType<typeof useGroomerStore>; appointment: Appointment; openEdit?: (id: string) => void }) {
   const service = store.data.services.find((item) => item.id === appointment.serviceId);
   const pet = store.data.pets.find((item) => item.id === appointment.petId);
   const client = store.data.clients.find((item) => item.id === appointment.clientId);
@@ -343,6 +549,11 @@ function AppointmentRow({ store, appointment }: { store: ReturnType<typeof useGr
       <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap", justifyContent: "flex-end" }}>
         <StatusBadge status={appointment.status} />
         <StatusBadge status={appointment.paymentStatus} />
+        {openEdit ? (
+          <button className="btn btn-small btn-outline" onClick={() => openEdit(appointment.id)}>
+            <Edit3 size={14} /> Edytuj
+          </button>
+        ) : null}
         {appointment.paymentStatus === "oczekuje" ? (
           <button className="btn btn-small btn-primary" onClick={() => store.payDeposit(appointment.id)}>
             Oznacz opłacone
@@ -708,7 +919,159 @@ function SettingsTab({ store }: { store: ReturnType<typeof useGroomerStore> }) {
   );
 }
 
-function AppointmentModal({ store, onClose }: { store: ReturnType<typeof useGroomerStore>; onClose: () => void }) {
+
+function MobileTabBar({
+  tabs,
+  activeTab,
+  setActiveTab
+}: {
+  tabs: { id: TabId; label: string; icon: React.ElementType }[];
+  activeTab: TabId;
+  setActiveTab: (tab: TabId) => void;
+}) {
+  return (
+    <nav className="mobile-tabbar" aria-label="Nawigacja panelu groomera">
+      {tabs.map((tab) => {
+        const Icon = tab.icon;
+        return (
+          <button key={tab.id} className={activeTab === tab.id ? "active" : ""} onClick={() => setActiveTab(tab.id)}>
+            <Icon size={18} />
+            <span>{tab.label}</span>
+          </button>
+        );
+      })}
+    </nav>
+  );
+}
+
+function EditAppointmentModal({ store, appointmentId, onClose }: { store: ReturnType<typeof useGroomerStore>; appointmentId: string; onClose: () => void }) {
+  const salon = store.data.salons[0];
+  const appointment = store.data.appointments.find((item) => item.id === appointmentId);
+  const [form, setForm] = useState(() => appointment ? { ...appointment } : null);
+
+  if (!appointment || !form) return null;
+
+  const selectedClient = store.data.clients.find((item) => item.id === form.clientId) || store.data.clients[0];
+  const pets = store.data.pets.filter((item) => item.clientId === form.clientId);
+  const selectedService = store.data.services.find((item) => item.id === form.serviceId) || store.data.services[0];
+  const deposit = calculateDeposit(salon, selectedService, selectedClient);
+
+  function save() {
+    if (!form) return;
+    const normalizedPayment = deposit === 0 ? "zwolniony" : form.paymentStatus;
+    store.updateAppointment({
+      ...form,
+      durationMin: selectedService.durationMin,
+      price: selectedService.price,
+      depositAmount: deposit,
+      paymentStatus: normalizedPayment
+    });
+    onClose();
+  }
+
+  return (
+    <div className="modal-backdrop" onMouseDown={onClose}>
+      <div className="modal" onMouseDown={(event) => event.stopPropagation()}>
+        <div className="section-head">
+          <div>
+            <h2 style={{ marginBottom: 6 }}>Edytuj wizytę</h2>
+            <p className="muted">Zmieniaj termin, pracownika, usługę, status i płatność.</p>
+          </div>
+          <button className="btn btn-outline" onClick={onClose}>Zamknij</button>
+        </div>
+        <div className="form-grid">
+          <label className="form-field">
+            Klient
+            <select
+              className="select"
+              value={form.clientId}
+              onChange={(e) => {
+                const nextPets = store.data.pets.filter((item) => item.clientId === e.target.value);
+                setForm({ ...form, clientId: e.target.value, petId: nextPets[0]?.id || form.petId });
+              }}
+            >
+              {store.data.clients.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}
+            </select>
+          </label>
+          <label className="form-field">
+            Pupil
+            <select className="select" value={form.petId} onChange={(e) => setForm({ ...form, petId: e.target.value })}>
+              {pets.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}
+            </select>
+          </label>
+          <label className="form-field">
+            Usługa
+            <select className="select" value={form.serviceId} onChange={(e) => setForm({ ...form, serviceId: e.target.value })}>
+              {store.data.services.map((item) => <option key={item.id} value={item.id}>{item.name} · {formatPrice(item.price)}</option>)}
+            </select>
+          </label>
+          <label className="form-field">
+            Pracownik
+            <select className="select" value={form.employeeId} onChange={(e) => setForm({ ...form, employeeId: e.target.value })}>
+              {store.data.employees.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}
+            </select>
+          </label>
+          <label className="form-field">
+            Data
+            <input className="input" type="date" value={form.date} onChange={(e) => setForm({ ...form, date: e.target.value })} />
+          </label>
+          <label className="form-field">
+            Godzina
+            <select className="select" value={form.time} onChange={(e) => setForm({ ...form, time: e.target.value })}>
+              {demoTimes.map((time) => <option key={time} value={time}>{time}</option>)}
+            </select>
+          </label>
+          <label className="form-field">
+            Status wizyty
+            <select className="select" value={form.status} onChange={(e) => setForm({ ...form, status: e.target.value as Appointment["status"] })}>
+              <option value="oczekuje_na_zadatek">Oczekuje na zadatek</option>
+              <option value="potwierdzona">Potwierdzona</option>
+              <option value="przełożona">Przełożona</option>
+              <option value="anulowana">Anulowana</option>
+              <option value="zakończona">Zakończona</option>
+              <option value="nieobecność">Nieobecność</option>
+            </select>
+          </label>
+          <label className="form-field">
+            Status płatności
+            <select className="select" value={deposit === 0 ? "zwolniony" : form.paymentStatus} disabled={deposit === 0} onChange={(e) => setForm({ ...form, paymentStatus: e.target.value as Appointment["paymentStatus"] })}>
+              <option value="oczekuje">Oczekuje</option>
+              <option value="opłacony">Opłacony</option>
+              <option value="zwolniony">Zwolniony</option>
+              <option value="nieudany">Nieudany</option>
+              <option value="zwrócony">Zwrócony</option>
+            </select>
+          </label>
+          <label className="form-field full">
+            Notatka
+            <textarea className="textarea" value={form.notes || ""} onChange={(e) => setForm({ ...form, notes: e.target.value })} />
+          </label>
+        </div>
+        <div className="card" style={{ marginTop: 16, boxShadow: "none" }}>
+          <InfoLine label="Cena po zmianach" value={formatPrice(selectedService.price)} />
+          <InfoLine label="Czas" value={`${selectedService.durationMin} min`} />
+          <InfoLine label="Zadatek" value={deposit === 0 ? "Nie wymagany" : formatPrice(deposit)} />
+        </div>
+        <div className="modal-actions">
+          <button className="btn btn-primary" onClick={save}>Zapisz zmiany</button>
+          {deposit > 0 ? <button className="btn btn-gold" onClick={() => setForm({ ...form, paymentStatus: "opłacony", status: "potwierdzona" })}>Oznacz opłacone</button> : null}
+          <button className="btn btn-outline" onClick={() => setForm({ ...form, status: "anulowana" })}>Anuluj wizytę</button>
+          <button
+            className="btn btn-outline danger-action"
+            onClick={() => {
+              store.deleteAppointment(appointment.id);
+              onClose();
+            }}
+          >
+            <Trash2 size={16} /> Usuń
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function AppointmentModal({ store, initial, onClose }: { store: ReturnType<typeof useGroomerStore>; initial?: Partial<Appointment> | null; onClose: () => void }) {
   const salon = store.data.salons[0];
   const client = store.data.clients[0];
   const pet = store.data.pets.find((item) => item.clientId === client.id) || store.data.pets[0];
@@ -718,9 +1081,9 @@ function AppointmentModal({ store, onClose }: { store: ReturnType<typeof useGroo
     clientId: client.id,
     petId: pet.id,
     serviceId: service.id,
-    employeeId: employee.id,
-    date: demoDates[0],
-    time: demoTimes[0],
+    employeeId: initial?.employeeId || employee.id,
+    date: initial?.date || demoDates[0],
+    time: initial?.time || demoTimes[0],
     source: "manual" as "manual" | "online",
     notes: ""
   });

@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useParams } from "next/navigation";
 import React, { useMemo, useState } from "react";
-import { Clock, Heart, MapPin, Search, Share2, Star } from "lucide-react";
+import { Check, Clock, Heart, MapPin, Search, Share2, Star } from "lucide-react";
 import { Logo, StatusBadge } from "@/components/Common";
 import { formatPrice, useGroomerStore } from "@/lib/store";
 
@@ -12,6 +12,8 @@ export default function SalonPage() {
   const params = useParams<{ slug: string }>();
   const salon = store.data.salons.find((item) => item.slug === params.slug) || store.data.salons[0];
   const [query, setQuery] = useState("");
+  const [favorite, setFavorite] = useState(false);
+  const [copied, setCopied] = useState(false);
   const services = store.data.services.filter(
     (item) => item.salonId === salon.id && item.active && `${item.name} ${item.description}`.toLowerCase().includes(query.toLowerCase())
   );
@@ -33,11 +35,30 @@ export default function SalonPage() {
             <a href="#kontakt">Kontakt</a>
           </nav>
           <div className="nav-actions">
-            <button className="btn btn-outline" style={{ minWidth: 44, padding: 0, color: "#fff", borderColor: "rgba(255,255,255,.2)" }}>
+            <button
+              className={favorite ? "btn btn-gold" : "btn btn-outline"}
+              style={{ minWidth: 44, padding: 0, color: favorite ? undefined : "#fff", borderColor: "rgba(255,255,255,.2)" }}
+              onClick={() => setFavorite((current) => !current)}
+              aria-label="Dodaj salon do ulubionych"
+              title={favorite ? "Salon jest w ulubionych" : "Dodaj do ulubionych"}
+            >
               <Heart size={18} />
             </button>
-            <button className="btn btn-outline" style={{ minWidth: 44, padding: 0, color: "#fff", borderColor: "rgba(255,255,255,.2)" }}>
-              <Share2 size={18} />
+            <button
+              className="btn btn-outline"
+              style={{ minWidth: copied ? 128 : 44, padding: copied ? "0 12px" : 0, color: "#fff", borderColor: "rgba(255,255,255,.2)" }}
+              onClick={() => {
+                if (typeof window !== "undefined") {
+                  navigator.clipboard?.writeText(window.location.href);
+                  setCopied(true);
+                  window.setTimeout(() => setCopied(false), 1400);
+                }
+              }}
+              aria-label="Skopiuj link do salonu"
+              title="Skopiuj link do salonu"
+            >
+              {copied ? <Check size={18} /> : <Share2 size={18} />}
+              {copied ? "Skopiowano" : null}
             </button>
             <Link className="btn btn-gold" href={`/book/${salon.slug}`}>
               Umów wizytę
@@ -75,7 +96,7 @@ export default function SalonPage() {
 
           <div className="card" style={{ boxShadow: "none" }}>
             <h2 style={{ fontSize: 34, marginBottom: 12 }}>Popularne usługi</h2>
-            {services.map((service) => (
+            {services.length ? services.map((service) => (
               <div className="service-row" key={service.id}>
                 <div>
                   <strong style={{ fontSize: 19 }}>{service.name}</strong>
@@ -94,7 +115,7 @@ export default function SalonPage() {
                   Umów
                 </Link>
               </div>
-            ))}
+            )) : <div className="empty-inline">Nie znaleziono usług dla tej frazy.</div>}
           </div>
 
           <div className="card" id="opinie" style={{ marginTop: 20 }}>
@@ -106,7 +127,7 @@ export default function SalonPage() {
               <div className="kpi">{average.toFixed(1).replace(".", ",")}</div>
             </div>
             <div className="table-list">
-              {reviews.map((review) => {
+              {reviews.length ? reviews.map((review) => {
                 const client = store.data.clients.find((item) => item.id === review.clientId);
                 const pet = store.data.pets.find((item) => item.id === review.petId);
                 return (
@@ -120,7 +141,7 @@ export default function SalonPage() {
                     <StatusBadge status="potwierdzona" />
                   </div>
                 );
-              })}
+              }) : <div className="empty-inline">Na razie brak nowych opinii w prototypie.</div>}
             </div>
           </div>
         </div>

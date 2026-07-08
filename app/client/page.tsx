@@ -81,26 +81,58 @@ export default function ClientPanel() {
         </div>
         {content}
       </main>
+      <ClientMobileTabBar tabs={clientTabs} activeTab={activeTab} setActiveTab={setActiveTab} />
     </div>
+  );
+}
+
+
+function ClientMobileTabBar({
+  tabs,
+  activeTab,
+  setActiveTab
+}: {
+  tabs: { id: ClientTab; label: string; icon: React.ElementType }[];
+  activeTab: ClientTab;
+  setActiveTab: (tab: ClientTab) => void;
+}) {
+  return (
+    <nav className="mobile-tabbar" aria-label="Nawigacja panelu klienta">
+      {tabs.map((tab) => {
+        const Icon = tab.icon;
+        return (
+          <button key={tab.id} className={activeTab === tab.id ? "active" : ""} onClick={() => setActiveTab(tab.id)}>
+            <Icon size={18} />
+            <span>{tab.label}</span>
+          </button>
+        );
+      })}
+    </nav>
   );
 }
 
 function ClientVisits({ store, clientId }: { store: ReturnType<typeof useGroomerStore>; clientId: string }) {
   const [rescheduleId, setRescheduleId] = useState<string | null>(null);
+  const [filter, setFilter] = useState<"upcoming" | "history" | "cancelled">("upcoming");
   const visits = store.data.appointments
     .filter((appointment) => appointment.clientId === clientId)
     .sort((a, b) => `${a.date}${a.time}`.localeCompare(`${b.date}${b.time}`));
+  const filteredVisits = visits.filter((appointment) => {
+    if (filter === "cancelled") return appointment.status === "anulowana";
+    if (filter === "history") return appointment.status === "zakończona" || appointment.status === "nieobecność";
+    return appointment.status !== "anulowana" && appointment.status !== "zakończona" && appointment.status !== "nieobecność";
+  });
   return (
     <div className="card">
       <div className="tabs" style={{ marginBottom: 18 }}>
-        <button className="active">Nadchodzące</button>
-        <button>Historia</button>
-        <button>Anulowane</button>
+        <button className={filter === "upcoming" ? "active" : ""} onClick={() => setFilter("upcoming")}>Nadchodzące</button>
+        <button className={filter === "history" ? "active" : ""} onClick={() => setFilter("history")}>Historia</button>
+        <button className={filter === "cancelled" ? "active" : ""} onClick={() => setFilter("cancelled")}>Anulowane</button>
       </div>
       <div className="table-list">
-        {visits.map((appointment) => (
+        {filteredVisits.length ? filteredVisits.map((appointment) => (
           <ClientVisitRow key={appointment.id} store={store} appointment={appointment} onReschedule={() => setRescheduleId(appointment.id)} />
-        ))}
+        )) : <div className="empty-inline">Brak wizyt w tej sekcji.</div>}
       </div>
       <div className="card" style={{ marginTop: 18, boxShadow: "none", background: "rgba(247,241,232,.6)" }}>
         <strong>Informacja</strong>

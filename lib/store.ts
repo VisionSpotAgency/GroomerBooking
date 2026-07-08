@@ -132,6 +132,11 @@ export function useGroomerStore() {
             item.id === appointment.id ? appointment : item
           )
         })),
+      deleteAppointment: (appointmentId: string) =>
+        update((current) => ({
+          ...current,
+          appointments: current.appointments.filter((item) => item.id !== appointmentId)
+        })),
       moveAppointment: (appointmentId: string, date: string, time: string, employeeId?: string) =>
         update((current) => ({
           ...current,

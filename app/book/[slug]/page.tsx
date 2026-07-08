@@ -134,7 +134,15 @@ export default function BookingPage() {
           </div>
         </div>
         <div className="stepper">
-          {[1, 2, 3, 4].map((item) => <span key={item} className={`step ${item <= step ? "active" : ""}`} />)}
+          {[1, 2, 3, 4].map((item) => (
+            <button
+              key={item}
+              className={`step ${item <= step ? "active" : ""}`}
+              onClick={() => item < step && setStep(item)}
+              aria-label={`Krok ${item}`}
+              disabled={item > step}
+            />
+          ))}
         </div>
 
         <div className="card">
